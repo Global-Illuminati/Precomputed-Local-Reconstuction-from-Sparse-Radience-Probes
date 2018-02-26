@@ -143,9 +143,9 @@ void write_obj(tinyobj_attrib_t attr, tinyobj_shape_t *shapes, size_t num_shapes
 		}
 
 		fprintf(f, "f %d/%d//%d %d/%d//%d %d/%d//%d\n",
-			a_idx + 1, a_info.uv_index + 1, new_a_idx,
-			b_idx + 1, b_info.uv_index + 1, new_b_idx,
-			c_idx + 1, c_info.uv_index + 1, new_c_idx);
+			a_idx + 1, a_info.uv_index + 1, new_a_idx + 1,
+			b_idx + 1, b_info.uv_index + 1, new_b_idx + 1,
+			c_idx + 1, c_info.uv_index + 1, new_c_idx + 1);
 	}
 	fclose(f);
 }
@@ -417,6 +417,8 @@ int main(int argc, char * argv[]) {
 		write_voxel_data(&data, "../voxels.dat");
 		
 		get_voxel_centers(probe_voxels, &data, probes);
+		//reduce_probes(probes, &data, 3.5f);
+		//reduce_probes(probes, &data, 15.0f);
 		reduce_probes(probes, &data, RHO_PROBES);
 		write_probe_data(probes, "../probes.dat");
 		printf("Probes saved to ../probes.dat");
