@@ -19,6 +19,7 @@
     <ClInclude Include="ray_tracer.hpp" />
     <ClInclude Include="local_transport.hpp" />
     <ClInclude Include="visibility.hpp" />
+    <ClInclude Include="relight_rays.hpp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />

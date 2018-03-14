@@ -143,15 +143,16 @@ void write_obj(tinyobj_attrib_t attr, tinyobj_shape_t *shapes, size_t num_shapes
 		}
 
 		fprintf(f, "f %d/%d//%d %d/%d//%d %d/%d//%d\n",
-			a_idx + 1, a_info.uv_index + 1, new_a_idx,
-			b_idx + 1, b_info.uv_index + 1, new_b_idx,
-			c_idx + 1, c_info.uv_index + 1, new_c_idx);
+			a_idx + 1, a_info.uv_index + 1, new_a_idx + 1,
+			b_idx + 1, b_info.uv_index + 1, new_b_idx + 1,
+			c_idx + 1, c_info.uv_index + 1, new_c_idx + 1);
 	}
 	fclose(f);
 }
 #include "voxelizer.hpp"
 #include "probe_reducer.hpp"
 #include "ray_tracer.hpp"
+#include "relight_rays.hpp"
 #include "google_spherical_harmonics\spherical_harmonics.h"
 
 iAABB2 transform_to_pixel_space(AABB2 bounding_box, Atlas_Output_Mesh *mesh) {
@@ -489,13 +490,30 @@ int main(int argc, char * argv[]) {
 		write_voxel_data(&data, "../voxels.dat");
 		
 		get_voxel_centers(probe_voxels, &data, probes);
+		
 		reduce_probes(probes, &data, RHO_PROBES / 4);
 		reduce_probes(probes, &data, RHO_PROBES / 2);
 		reduce_probes(probes, &data, RHO_PROBES);
+		
 		write_probe_data(probes, "../probes.dat");
 		printf("Probes saved to ../probes.dat");
 		
 	}
+
+	std::vector<ProbeData> probe_data(probes.size());
+	{
+		std::vector<vec3> relight_ray_directions;
+		generate_relight_ray_directions(relight_ray_directions, RELIGHT_RAYS_PER_PROBE);
+		write_probe_data(relight_ray_directions, "../relight_directions.dat");
+		precompute_lightmap_uvs(probe_data, probes, relight_ray_directions, output_mesh, m);
+		for (int i = 0; i < probes.size(); i++) {
+			for (int j = 0; j < RELIGHT_RAYS_PER_PROBE; j++) {
+				vec2 uv = probe_data[i].relight_rays_uv[j];
+				printf("Probe %d, relight ray %d:       %f %f\n", i, j, uv[0], uv[1]);
+			}
+		}
+	}
+
 	std::vector<Receiver>receivers;
 
 	{ // generate receivers

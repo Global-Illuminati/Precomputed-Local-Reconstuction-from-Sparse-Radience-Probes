@@ -160,6 +160,7 @@
     <ClInclude Include="local_transport.hpp" />
     <ClInclude Include="probe_reducer.hpp" />
     <ClInclude Include="ray_tracer.hpp" />
+    <ClInclude Include="relight_rays.hpp" />
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="targetver.h" />
     <ClInclude Include="thekla_atlas.h" />

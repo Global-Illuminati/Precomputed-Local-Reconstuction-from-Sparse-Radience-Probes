@@ -86,6 +86,9 @@ InternalRay make_internal_ray(Ray ray) {
 struct HitInfo {
 	vec3 pos;
 	float t;
+	float b0;
+	float b1;
+	float b2;
 };
 
 bool intersect(InternalRay &ray, const Triangle &t, HitInfo *hit_info) {
@@ -146,6 +149,9 @@ bool intersect(InternalRay &ray, const Triangle &t, HitInfo *hit_info) {
 	// set info
 	hit_info->t = t_scaled * inv_det;
 	hit_info->pos = t.a*b0 + t.b*b1 + t.c*b2;
+	hit_info->b0 = b0;
+	hit_info->b1 = b1;
+	hit_info->b2 = b2;
 	return true;
 }
 
@@ -200,6 +206,57 @@ bool see_same_point(Ray a, vec3 p, Mesh mesh, vec3 *psi_dir) {
 	return (closest_tri_b == closest_tri_a);
 }
 
+
+/**
+	Returns whether the ray hits anything, and if so sets uv to the lightmap uv coordinates of the hit point
+*/
+bool lightmap_uv_of_closest_intersection(Ray ray, Atlas_Output_Mesh *light_map_mesh, Mesh mesh, vec2 *hit_uv)
+{
+	int closest_tri = -1;
+	HitInfo closest_hit_info;
+	InternalRay &i_ray = make_internal_ray(ray);
+
+	for (int face_idx = 0; face_idx < light_map_mesh->index_count / 3; face_idx++) {
+		auto new_a_idx = light_map_mesh->index_array[face_idx * 3 + 0];
+		auto new_b_idx = light_map_mesh->index_array[face_idx * 3 + 1];
+		auto new_c_idx = light_map_mesh->index_array[face_idx * 3 + 2];
+
+		auto a_idx = light_map_mesh->vertex_array[new_a_idx].xref;
+		auto b_idx = light_map_mesh->vertex_array[new_b_idx].xref;
+		auto c_idx = light_map_mesh->vertex_array[new_c_idx].xref;
+
+		Triangle t =
+		{
+			mesh.verts[a_idx],
+			mesh.verts[b_idx],
+			mesh.verts[c_idx]
+		};
+
+		HitInfo hit_info;
+		if (intersect(i_ray, t, &hit_info)) {
+			i_ray.t_max = max(i_ray.t_max, hit_info.t);
+			closest_tri = face_idx;
+			closest_hit_info = hit_info;
+		}
+	}
+
+	if (closest_tri != -1) {
+		auto new_a_idx = light_map_mesh->index_array[closest_tri * 3 + 0];
+		auto new_b_idx = light_map_mesh->index_array[closest_tri * 3 + 1];
+		auto new_c_idx = light_map_mesh->index_array[closest_tri * 3 + 2];
+		float u_a = light_map_mesh->vertex_array[new_a_idx].uv[0];
+		float v_a = light_map_mesh->vertex_array[new_a_idx].uv[1];
+		float u_b = light_map_mesh->vertex_array[new_b_idx].uv[0];
+		float v_b = light_map_mesh->vertex_array[new_b_idx].uv[1];
+		float u_c = light_map_mesh->vertex_array[new_c_idx].uv[0];
+		float v_c = light_map_mesh->vertex_array[new_c_idx].uv[1];
+		(*hit_uv)[0] = u_a * closest_hit_info.b0 + u_b * closest_hit_info.b1 + u_c * closest_hit_info.b2;
+		(*hit_uv)[1] = v_a * closest_hit_info.b0 + v_b * closest_hit_info.b1 + v_c * closest_hit_info.b2;
+		return true;
+	} else {
+		return false;
+	}
+}
 
 // @NOTE
 // further down the line we'll also need uvs and textures..
