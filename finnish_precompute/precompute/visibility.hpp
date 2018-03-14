@@ -334,7 +334,11 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	GLuint receiver_normal_uniform_location = glGetUniformLocation(shadow_map_program, "receiver_normal");
 	GLuint receiver_pos_uniform_location = glGetUniformLocation(shadow_map_program, "receiver_pos");
 
-
+	int num_pbo_bytes = num_probes_per_rec * receivers.size() * sizeof(float)*16;
+	GLuint pbo;
+	glGenBuffers(1, &pbo);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
+	glBufferData(GL_PIXEL_PACK_BUFFER, num_pbo_bytes, NULL, GL_STREAM_READ);
 
 	GLuint fbo;
 	glGenFramebuffers(1, &fbo);
@@ -352,7 +356,8 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 	auto start_time = std::chrono::high_resolution_clock::now();
 	SHTextures shs = gen_sh_textures();
-	for (ReceiverData *receiver : receivers) {
+	for (int receiver_index = 0; receiver_index < receivers.size();receiver_index++) {
+		ReceiverData *receiver = receivers[receiver_index];
 		glClearColor(0, 0, 0, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		for (int probe_index = 0; probe_index < receiver->num_visible_probes; probe_index++) {
@@ -423,7 +428,10 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 			for (int i = 0; i < 4; i++) {
 				glBindTexture(GL_TEXTURE_2D, shs.textures[i]);
-				glGetTexImage(GL_TEXTURE_2D, 6, GL_RGBA, GL_FLOAT, &receiver->visible_probes[probe_index].sh_coeffs[i * 4]);
+				int num_processed_probes = (receiver_index*num_probes_per_rec + probe_index);
+				
+				glGetTexImage(GL_TEXTURE_2D, 6, GL_RGBA, GL_FLOAT, 
+					(void *)(sizeof(float)*(16* num_processed_probes +4*i)));
 			}
 		}
 
@@ -435,6 +443,19 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 		printf("recs done: %d\n", num_done);
 	}
+	float* sh_coeffs= (float*)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+
+	for (int receiver_index = 0; receiver_index < receivers.size(); receiver_index++) {
+		for (int probe_index = 0; probe_index < num_probes_per_rec; probe_index++) {
+			for (int i = 0; i < 16; i++){
+				// output coeffs to file here?
+				// we should do an svd decomposition but maybe output first so we don't have to wait 50 min to debug...
+				receivers[receiver_index]->visible_probes[probe_index].sh_coeffs[i] = sh_coeffs[(receiver_index*num_probes_per_rec + probe_index) * 16 + i];
+			}
+		}
+	}
+	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+
 
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteRenderbuffers(1, &depth_buffer);
