@@ -12,6 +12,13 @@ GLFWwindow* window;
 // is 8 enough? on average 10 or what ever
 const int num_probes_per_rec = 8;
 
+struct 	DepthCubeMap {
+	GLuint cube_map;
+};
+
+struct 	SHTextures {
+	GLuint textures[8];
+};
 
 struct ReceiverData {
 	vec3 position;
@@ -21,6 +28,7 @@ struct ReceiverData {
 		float weight;
 		vec3 position;
 		float sh_coeffs[16];
+		DepthCubeMap depth_cube_map;
 	} visible_probes[num_probes_per_rec];
 	int num_visible_probes;
 };
@@ -183,14 +191,6 @@ void _check_gl_error(const char *file, int line) {
 #define check_gl_error() _check_gl_error(__FILE__,__LINE__)
 
 
-struct 	DepthCubeMap {
-	GLuint cube_map;
-};
-
-
-struct 	SHTextures {
-	GLuint textures[4];
-};
 
 
 const int cube_map_size = 512;
@@ -216,8 +216,8 @@ DepthCubeMap gen_depth_cubemap() {
 const int sh_samples = 64;
 SHTextures gen_sh_textures() {
 	SHTextures ret;
-	glGenTextures(4, ret.textures);
-	for (int i = 0; i < 4; i++) {
+	glGenTextures(8, ret.textures);
+	for (int i = 0; i < 8; i++) {
 		glBindTexture(GL_TEXTURE_2D, ret.textures[i]);
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -360,23 +360,31 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 		ReceiverData *receiver = receivers[receiver_index];
 		glClearColor(0, 0, 0, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		for (int probe_index = 0; probe_index < receiver->num_visible_probes; probe_index++) {
-			vec3 probe_pos = receiver->visible_probes[probe_index].position;
+		for (int probe_index = 0; probe_index < receiver->num_visible_probes; probe_index+=2) {
+			vec3 probe_pos_1 = receiver->visible_probes[probe_index].position;
+			vec3 probe_pos_2 = receiver->visible_probes[probe_index+1].position;
+
+			float probe_positions[] = {
+				probe_pos_1.x(),probe_pos_1.y(),probe_pos_1.z(),
+				probe_pos_2.x(),probe_pos_2.y(),probe_pos_2.z(),
+			};
+
+			glUniform3fv(probe_pos_uniform_location, 2, probe_positions);
+			glUniform3fv(receiver_pos_uniform_location, 1, receiver->position.data());
+			glUniform3fv(receiver_normal_uniform_location, 1, receiver->normal.data());
+			glActiveTexture(GL_TEXTURE0);
+			glBindTexture(GL_TEXTURE_CUBE_MAP, receiver->visible_probes[probe_index].depth_cube_map.cube_map);
+			glActiveTexture(GL_TEXTURE1);
+			glBindTexture(GL_TEXTURE_CUBE_MAP, receiver->visible_probes[probe_index+1].depth_cube_map.cube_map);
+
+
 			for (int cube_map_index = 0; cube_map_index < 6; cube_map_index++) {
 
 				mat4 mat = proj * look_at(receiver->position, receiver->position + cube_map_dir[cube_map_index], cube_map_up[cube_map_index]);
 				glUniformMatrix4fv(matrix_uniform_location, 1, false, mat.data());
-				glUniform3fv(receiver_pos_uniform_location, 1, receiver->position.data());
-				glUniform3fv(receiver_normal_uniform_location, 1, receiver->normal.data());
-				glUniform3fv(probe_pos_uniform_location, 1, probe_pos.data());
-
 
 
 				// PERF: cross iteration dep, should possibly unroll
-				// PERF: uses only half of the color attatchments
-				//       either use twice as many sh-coeffs (maps badly, 36 > 32 -> only sh5)
-				//       or render two probes at the same time should be fine.
-				
 
 				// PERF: we can totally render all probes in the same pass
 				// 
@@ -385,12 +393,22 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 				// where we samlpe is arbitrary, we're not even uniform at this point
 				//
 				// Extract in custom ~mipmapping stage
-				for (int i = 0; i < 4; i++){
+				for (int i = 0; i < 8; i++){
 					glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0+i, shs.textures[i], 0);
 				}
 
-				GLenum DrawBuffers[] = { GL_COLOR_ATTACHMENT0,GL_COLOR_ATTACHMENT1,GL_COLOR_ATTACHMENT2,GL_COLOR_ATTACHMENT3 };
-				glDrawBuffers(4, DrawBuffers); // is this neccessary??
+				GLenum DrawBuffers[] = { 
+					GL_COLOR_ATTACHMENT0,
+					GL_COLOR_ATTACHMENT1,
+					GL_COLOR_ATTACHMENT2,
+					GL_COLOR_ATTACHMENT3, 
+					GL_COLOR_ATTACHMENT4,
+					GL_COLOR_ATTACHMENT5,
+					GL_COLOR_ATTACHMENT6,
+					GL_COLOR_ATTACHMENT7
+				};
+				glDrawBuffers(8, DrawBuffers);
+				
 				#if 0
 				{// check for errors
 					check_gl_error();
@@ -417,21 +435,12 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 			// also hint which filtering... however is box fast or good? idk, probably fast? or is it precision?
 			// glHint(GL_GENERATE_MIPMAP_HINT, GL_NICEST/GL_FASTEST), 
 
-			// PERF: glgetteximage slow as fuck?
-			// PBO
-			// compute shader?
-
-			for (int i = 0; i < 4; i++) {
+			for (int i = 0; i < 8; i++) {
 				glBindTexture(GL_TEXTURE_2D, shs.textures[i]);
 				glGenerateMipmap(GL_TEXTURE_2D);
-			}
-
-			for (int i = 0; i < 4; i++) {
-				glBindTexture(GL_TEXTURE_2D, shs.textures[i]);
 				int num_processed_probes = (receiver_index*num_probes_per_rec + probe_index);
-				
 				glGetTexImage(GL_TEXTURE_2D, 6, GL_RGBA, GL_FLOAT, 
-					(void *)(sizeof(float)*(16* num_processed_probes +4*i)));
+					(void *)(sizeof(float)*(32* num_processed_probes +4*i)));
 			}
 		}
 
@@ -565,32 +574,34 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 		ReceiverData *rec_data = (ReceiverData *)calloc(1, sizeof(ReceiverData));
 		rec_data->normal = receiver.norm;
 		rec_data->position = receiver.pos;
-		std::priority_queue <vec3, std::vector<vec3>, std::greater<int>> prio_queue;
 
 		// jesus christ do I love c++ templates 
-		std::priority_queue<vec3, std::vector<vec3>,
-			std::function<bool(vec3, vec3)> >
-			closest_probes([receiver](vec3 a, vec3 b) -> bool {
-			vec3 da = a - receiver.pos;
-			vec3 db = b - receiver.pos;
+		std::priority_queue<int, std::vector<int>,
+			std::function<bool(int, int)> >
+			closest_probes([receiver,probe_locations](int ia, int ib) -> bool {
+			vec3 da = probe_locations[ia] - receiver.pos;
+			vec3 db = probe_locations[ib] - receiver.pos;
 			return (da.dot(da) < db.dot(db));
 		});
 
 		for (int i = 0; i < min(num_probes_per_rec, probe_locations.size()); i++) {
-			closest_probes.push(probe_locations[i]);
+			closest_probes.push(i);
 		}
 
 		for (int i = num_probes_per_rec; i < probe_locations.size(); i++) {
-			closest_probes.push(probe_locations[i]);
+			closest_probes.push(i);
 			closest_probes.pop();
 		}
 
 		while (!closest_probes.empty()) {
-			vec3 probe = closest_probes.top();
+			int probe_index = closest_probes.top();
+			vec3 probe = probe_locations[probe_index];
 			closest_probes.pop();
 			float dist = (probe - rec_data->position).norm();
 			rec_data->visible_probes[rec_data->num_visible_probes].position = probe;
 			rec_data->visible_probes[rec_data->num_visible_probes].weight = w(inv_radius*dist);
+			rec_data->visible_probes[rec_data->num_visible_probes].depth_cube_map = depth_maps[probe_index];
+
 			++rec_data->num_visible_probes;
 		}
 		receivers.push_back(rec_data);
