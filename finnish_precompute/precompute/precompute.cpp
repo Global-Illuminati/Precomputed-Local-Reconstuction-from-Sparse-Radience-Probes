@@ -1,5 +1,5 @@
 
-#define RHO_PROBES 7.0f
+#define RHO_PROBES 15.0f
 
 #pragma warning(disable:4996)
 #include "stdafx.h"
@@ -275,8 +275,66 @@ void generate_normals(Mesh *mesh) {
 // Daniel, 11 Feb 2018 
 
 
-#include "local_transport.hpp"
+float pi = 3.1415;
 
+// coeffs of the first 4 sh's
+float sh_coeffs[16] =
+{
+	1 / (2 * sqrt(pi)),        // 0, 0
+
+	-sqrt(3) / (2 * sqrt(pi)),  // 1,-1
+	+sqrt(3) / (2 * sqrt(pi)),  // 1, 0
+	-sqrt(3) / (2 * sqrt(pi)),  // 1,+1
+
+	+sqrt(15) / (2 * sqrt(pi)),  // 2, -2
+	-sqrt(15) / (2 * sqrt(pi)),  // 2, -1
+	+sqrt(5) / (4 * sqrt(pi)),  // 2, -0
+	-sqrt(15) / (2 * sqrt(pi)),  // 2,  1
+	+sqrt(15) / (4 * sqrt(pi)),  // 2,  2
+
+
+	-sqrt(70) / (8 * sqrt(pi)),  //3, -3
+	sqrt(105) / (2 * sqrt(pi)),  //3, -2
+	-sqrt(42) / (8 * sqrt(pi)),  //3, -1
+	sqrt(7) / (4 * sqrt(pi)),  //3,  0
+	-sqrt(42) / (8 * sqrt(pi)),  //3,  1
+	sqrt(105) / (4 * sqrt(pi)), //3,  2
+	-sqrt(70) / (8 * sqrt(pi))   //3, 3
+};
+
+float sh_basis_func(vec3 v, int i) {
+	float x = v.x();
+	float y = v.y();
+	float z = v.z();
+
+	switch (i) {
+	case 0: return sh_coeffs[i];
+
+	case 1: return sh_coeffs[i] * y;
+	case 2: return sh_coeffs[i] * z;
+	case 3: return sh_coeffs[i] * x;
+
+	case 4: return sh_coeffs[i] * y*x;
+	case 5: return sh_coeffs[i] * y*z;
+	case 6: return sh_coeffs[i] * (3 * z*z - 1);
+	case 7: return sh_coeffs[i] * x*z;
+	case 8: return sh_coeffs[i] * (x*x - y * y);
+
+	case 9: return sh_coeffs[i] * y*(3 * x*x - y * y);
+	case 10: return sh_coeffs[i] * x*y*z;
+	case 11: return sh_coeffs[i] * y*(-1 + 5 * z*z);
+	case 12: return sh_coeffs[i] * z*(5 * z*z - 3);
+	case 13: return sh_coeffs[i] * x*(-1 + 5 * z*z);
+	case 14: return sh_coeffs[i] * (x*x - y * y)*z;
+	case 15: return sh_coeffs[i] * x*(x*x - 3 * y * y);
+	}
+}
+
+
+
+
+//#include "local_transport.hpp"
+#include "visibility.hpp"
 
 
 int main(int argc, char * argv[]) {
@@ -310,6 +368,31 @@ int main(int argc, char * argv[]) {
 		free((void *)data);
 	}
 
+	Mesh m = {};
+	{ // set up the mesh
+		m.num_verts = attr.num_vertices;
+		m.num_indices = attr.num_faces;
+		m.verts = (vec3 *)attr.vertices;
+
+		int *indices = (int *)malloc(m.num_indices * sizeof(int));
+		for (int i = 0; i < m.num_indices; i++) {
+			indices[i] = attr.faces[i].v_idx;
+		}
+		m.indices = indices;
+		generate_normals(&m);
+	}
+
+	int test_idx[] = { 0,1,2,0,2,3 };
+	vec3 test_verts[] = {vec3(-1,-1,0),vec3(1,-1,0),vec3(1,1,0),vec3(-1,1,0) };
+	vec3 test_normals[] = { vec3(0,0,-1),vec3(0,0,-1),vec3(0,0,-1),vec3(0,0,-1) };
+	Mesh test;
+	test.indices = test_idx;
+	test.verts   = test_verts;
+	test.num_indices = 6;
+	test.num_verts = 4;
+	test.normals = test_normals;
+
+
 
 	// convert to theklas input format
 	Atlas_Input_Face   *faces = (Atlas_Input_Face  *)malloc(sizeof(Atlas_Input_Face)*attr.num_face_num_verts);
@@ -319,6 +402,7 @@ int main(int argc, char * argv[]) {
 		faces[i].vertex_index[0] = attr.faces[i * 3 + 0].v_idx;
 		faces[i].vertex_index[1] = attr.faces[i * 3 + 1].v_idx;
 		faces[i].vertex_index[2] = attr.faces[i * 3 + 2].v_idx;
+		
 	}
 
 	for (int i = 0; i < attr.num_vertices; i++) {
@@ -358,7 +442,7 @@ int main(int argc, char * argv[]) {
 	Atlas_Input_Mesh input_mesh;
 	input_mesh.vertex_count = attr.num_vertices;
 	input_mesh.vertex_array = verts;
-	input_mesh.face_count = attr.num_face_num_verts;
+	input_mesh.face_count = attr.num_faces/3;
 	input_mesh.face_array = faces;
 
 	Atlas_Output_Mesh *output_mesh =NULL;
@@ -372,9 +456,10 @@ int main(int argc, char * argv[]) {
 		// Avoid brute force packing, since it can be unusably slow in some situations.
 		atlas_options.packer_options.witness.packing_quality = 1;
 		atlas_options.packer_options.witness.conservative = false;
-		atlas_options.packer_options.witness.texel_area = 3; // approx the size we want 
-
-		atlas_options.charter_options.witness.max_chart_area = 100000;
+		atlas_options.packer_options.witness.texel_area = 0.000001; // approx the size we want 
+		atlas_options.packer_options.witness.block_align = false;
+		atlas_options.charter_options.witness.max_chart_area = 100;
+		
 
 	
 		Atlas_Error error = Atlas_Error_Success;
@@ -394,21 +479,8 @@ int main(int argc, char * argv[]) {
 #endif
 	
 	static VoxelScene data;
-	Mesh m = {};
-	{ // set up the mesh
-		m.num_verts = input_mesh.vertex_count;
-		m.num_indices = input_mesh.face_count * 3;
-		m.verts = (vec3 *)attr.vertices;// dangerous assumes no padding in the struct
+	
 
-		int *indices = (int *)malloc(m.num_indices * sizeof(int));
-		for (int i = 0; i < m.num_indices / 3; i++) {
-			indices[i * 3 + 0] = input_mesh.face_array[i].vertex_index[0];
-			indices[i * 3 + 1] = input_mesh.face_array[i].vertex_index[1];
-			indices[i * 3 + 2] = input_mesh.face_array[i].vertex_index[2];
-		}
-		m.indices = indices;
-		generate_normals(&m);
-	}
 	std::vector<vec3>probes;
 	{//voxelize and generate probes
 		voxelize_scene(m, &data);
@@ -417,6 +489,8 @@ int main(int argc, char * argv[]) {
 		write_voxel_data(&data, "../voxels.dat");
 		
 		get_voxel_centers(probe_voxels, &data, probes);
+		reduce_probes(probes, &data, RHO_PROBES / 4);
+		reduce_probes(probes, &data, RHO_PROBES / 2);
 		reduce_probes(probes, &data, RHO_PROBES);
 		write_probe_data(probes, "../probes.dat");
 		printf("Probes saved to ../probes.dat");
@@ -426,10 +500,12 @@ int main(int argc, char * argv[]) {
 
 	{ // generate receivers
 		compute_receiver_locations(output_mesh, m, receivers);
+		printf("num receivers:%d\n", receivers.size());
 	}
 
+
 	{ // compute local transport
-		compute_alpha(receivers, probes, m, RHO_PROBES);
+		visibility(receivers, probes, &m, RHO_PROBES);
 	}
 
 	

@@ -5,6 +5,7 @@
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="ThirdParty\thekla\thekla_atlas.cpp" />
     <ClCompile Include="ThirdParty\google_spherical_harmonics\spherical_harmonics.cc" />
+    <ClCompile Include="ThirdParty\glew\include\GL\glew.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h" />
@@ -17,8 +18,16 @@
     <ClInclude Include="probe_reducer.hpp" />
     <ClInclude Include="ray_tracer.hpp" />
     <ClInclude Include="local_transport.hpp" />
+    <ClInclude Include="visibility.hpp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="shader.vert" />
+    <None Include="shader.frag" />
+    <None Include="shadow_map.vert" />
+    <None Include="shadow_map.frag" />
+    <None Include="local_transport.frag" />
   </ItemGroup>
 </Project>
