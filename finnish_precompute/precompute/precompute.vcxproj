@@ -200,11 +200,15 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <None Include="full_screen.vert" />
+    <None Include="normalization.frag" />
     <None Include="shader.frag" />
     <None Include="shader.vert" />
     <None Include="shadow_map.frag" />
     <None Include="shadow_map.vert" />
     <None Include="local_transport.frag" />
+    <None Include="spherical_harmonics.frag" />
+    <None Include="visibility.frag" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

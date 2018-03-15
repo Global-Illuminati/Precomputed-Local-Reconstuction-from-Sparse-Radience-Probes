@@ -162,7 +162,7 @@ iAABB2 transform_to_pixel_space(AABB2 bounding_box, Atlas_Output_Mesh *mesh) {
 	ivec2 cl = ceil2(bounding_box.max);
 
 	ret.min = fl.cwiseMax(0);
-	ret.max = cl.cwiseMax(atlas_size);
+	ret.max = cl.cwiseMin(atlas_size);
 
 	return ret;
 }
@@ -225,7 +225,33 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 			if (pixel_is_processed[x][y])continue;
 			ivec2 pixel = ivec2(x, y);
 			vec3 baryc = compute_barycentric_coords(get_pixel_center(pixel), uv_tri);
-			if (baryc.x()>0 && baryc.z()>0 && baryc.z()>0) {
+#if 0
+			printf("(%f %f), <(%f %f),(%f %f),(%f %f)>\n",
+				get_pixel_center(pixel).x(),
+				get_pixel_center(pixel).y(),
+				uv_tri.a.x(),
+				uv_tri.a.y(),
+				uv_tri.b.x(),
+				uv_tri.b.y(),
+				uv_tri.c.x(),
+				uv_tri.c.y()
+				);
+
+			printf("(%f %f %f)>\n",
+				baryc.x(),
+				baryc.y(),
+				baryc.z()
+			);
+
+			vec2 recreation = uv_tri.a* baryc.x() + uv_tri.b* baryc.y() + uv_tri.c * baryc.z();
+			printf("(%f %f)>\n",
+				recreation.x(),
+				recreation.y()
+			);
+#endif
+
+
+			if (baryc.x()>0 && baryc.y()>0 && baryc.z()>0) {
 				pixel_is_processed[x][y] = true;
 				vec3 pos = vert_a * baryc.x() + vert_b * baryc.y() + vert_c * baryc.z();
 				vec3 norm = norm_a * baryc.x() + norm_b * baryc.y() + norm_c * baryc.z();
@@ -455,9 +481,9 @@ int main(int argc, char * argv[]) {
 
 
 		// Avoid brute force packing, since it can be unusably slow in some situations.
-		atlas_options.packer_options.witness.packing_quality = 1;
+		atlas_options.packer_options.witness.packing_quality = 0.1;
 		atlas_options.packer_options.witness.conservative = false;
-		atlas_options.packer_options.witness.texel_area = 0.000001; // approx the size we want 
+		atlas_options.packer_options.witness.texel_area = 2; // approx the size we want 
 		atlas_options.packer_options.witness.block_align = false;
 		atlas_options.charter_options.witness.max_chart_area = 100;
 		
@@ -518,12 +544,11 @@ int main(int argc, char * argv[]) {
 
 	{ // generate receivers
 		compute_receiver_locations(output_mesh, m, receivers);
-		printf("num receivers:%d\n", receivers.size());
 	}
 
 
 	{ // compute local transport
-		visibility(receivers, probes, &m, RHO_PROBES);
+		visibility(receivers, probes, &m);
 	}
 
 	
