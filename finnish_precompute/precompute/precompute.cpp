@@ -284,24 +284,6 @@ void generate_normals(Mesh *mesh) {
 
 
 int main(int argc, char * argv[]) {
-	
-	{
-		std::vector<Eigen::Triplet<float>> coeffs;
-		coeffs.push_back({ 0,0,1.1f });
-		coeffs.push_back({ 1,1,2.2f });
-		coeffs.push_back({ 2,2,3.3f });
-		Eigen::SparseMatrix<float>mat(4,4);
-		mat.setFromTriplets(coeffs.begin(), coeffs.end());
-
-		mat4 m = mat;
-		int q = 0;
-
-	
-	}
-
-
-
-
 	tinyobj_attrib_t attr;
 	tinyobj_shape_t* shapes = NULL;
 	size_t num_shapes;
