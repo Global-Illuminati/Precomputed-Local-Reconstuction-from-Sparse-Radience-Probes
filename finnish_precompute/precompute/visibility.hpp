@@ -23,8 +23,10 @@ struct 	SHTextures {
 struct ReceiverData {
 	vec3 position;
 	vec3 normal;
+	ivec2 px;
 
 	struct Probe {
+		int index;
 		float weight;
 		vec3 position;
 		float sh_coeffs[16];
@@ -32,7 +34,6 @@ struct ReceiverData {
 	} visible_probes[num_probes_per_rec];
 	int num_visible_probes;
 };
-
 
 typedef Eigen::Matrix4f mat4;
 mat4 projection(float near, float far, float aspect) {
@@ -265,6 +266,23 @@ void check_fbo() {
 	}
 }
 
+#undef PI
+#include "redsvd-h.h"
+
+
+void store_matrix(Eigen::MatrixXf mat, char *path) {
+	FILE *file = fopen(path, "wb");
+
+	int w = mat.cols();
+	int h = mat.rows();
+
+	fwrite(&w, sizeof(w), 1, file);
+	fwrite(&h, sizeof(h), 1, file);
+	
+	fwrite(mat.data(), sizeof(float), mat.size(), file);
+	fclose(file);
+}
+
 // assumes that the currently bound vao is the entire scene to be rendered.
 std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>probes) {
 	GLuint shadow_map_program = LoadShaders("shadow_map.vert", "shadow_map.frag");
@@ -318,7 +336,7 @@ std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>p
 }
 #include <chrono>
 // assumes that the currently bound vao is the entire scene to be rendered.
-void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std::vector<DepthCubeMap> depth_maps) {
+void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std::vector<DepthCubeMap> depth_maps, int num_probes) {
 
 	GLuint visibility_shader = LoadShaders("shader.vert", "visibility.frag");
 	GLuint spherical_harmonics_shader = LoadShaders("full_screen.vert", "spherical_harmonics.frag");
@@ -464,7 +482,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 			if (receiver->num_visible_probes > i + 1) {
 				for (int j = 0; j < 4; j++) {
-					glBindTexture(GL_TEXTURE_2D, shs.textures[j+4]);
+					glBindTexture(GL_TEXTURE_2D, shs.textures[j + 4]);
 					glGenerateMipmap(GL_TEXTURE_2D);
 
 					// output to pbo
@@ -490,10 +508,19 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	int num_coeffs_per_probe = 16;
 	int num_coeffs_per_rec = num_probes_per_rec * num_coeffs_per_probe;
 
+	Eigen::SparseMatrix<float> coeff_matrix(receivers.size()*num_coeffs_per_probe,num_probes);
+	std::vector<Eigen::Triplet<float>> coefficients;
 
 	for (int receiver_index = 0; receiver_index < receivers.size(); receiver_index++) {
 		for (int probe_index = 0; probe_index < num_probes_per_rec; probe_index++) {
 			for (int i = 0; i < num_coeffs_per_probe; i++) {
+				coefficients.push_back(
+					{
+						receiver_index*num_coeffs_per_probe + i,
+						receivers[receiver_index]->visible_probes[probe_index].index,
+						sh_coeffs[receiver_index*num_coeffs_per_rec + i]
+					}
+				);
 				// output coeffs to file here?
 				// we should do an svd decomposition but maybe output first so we don't have to wait 50 min to debug...
 				receivers[receiver_index]->visible_probes[probe_index].sh_coeffs[i]
@@ -501,8 +528,17 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 			}
 		}
 	}
-	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 
+	coeff_matrix.setFromTriplets(coefficients.begin(), coefficients.end());
+
+	RedSVD::RedSVD<Eigen::SparseMatrix<float>> s;
+	s.compute(coeff_matrix, 16);
+
+	store_matrix(s.matrixU(), "u.matrix");
+	auto SvT = Eigen::DiagonalMatrix<float, Eigen::Dynamic>(s.singularValues()) * s.matrixV().transpose();
+	store_matrix(SvT, "simga_v.matrix");
+
+	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteRenderbuffers(1, &depth_buffer);
@@ -612,10 +648,11 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 		ReceiverData *rec_data = (ReceiverData *)calloc(1, sizeof(ReceiverData));
 		rec_data->normal = receiver.norm;
 		rec_data->position = receiver.pos;
+		rec_data->px = receiver.px;
 
 		// jesus christ do I love c++ templates 
 		std::priority_queue<int, std::vector<int>,
-			std::function<bool(int, int)> >
+			std::function<bool(int, int)>>
 			closest_probes([receiver, probe_locations](int ia, int ib) -> bool {
 			vec3 da = probe_locations[ia] - receiver.pos;
 			vec3 db = probe_locations[ib] - receiver.pos;
@@ -633,15 +670,16 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 		float dist = (probe_locations[closest_probes.top()] - rec_data->position).norm();
 		closest_probes.pop();
 		radius = min(radius, dist);
-		int i = 0;
+		int i = num_probes_per_rec-1;
 		while (!closest_probes.empty()) {
 			int probe_index = closest_probes.top();
 			vec3 probe = probe_locations[probe_index];
 			closest_probes.pop();
 			float dist = (probe - rec_data->position).norm();
 			rec_data->visible_probes[i].position = probe;
+			rec_data->visible_probes[i].index = probe_index;
 			rec_data->visible_probes[i].depth_cube_map = depth_maps[probe_index];
-			++i;
+			i--;
 		}
 
 		receivers.push_back(rec_data);
@@ -679,10 +717,7 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 
 	printf("calculating spherical harmonics etc...");
 
-	render_receivers(mesh->num_indices, receivers, depth_maps);
-
-
-
+	render_receivers(mesh->num_indices, receivers, depth_maps, probe_locations.size());
 
 
 #if 0

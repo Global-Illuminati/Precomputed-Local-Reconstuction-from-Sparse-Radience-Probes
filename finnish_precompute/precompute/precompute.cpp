@@ -18,12 +18,11 @@ using namespace Thekla;
 
 //#define eigen_assert(x) do{if(!(x)){printf(#x);__debugbreak();}}while(0)
 #include "Eigen\Dense"
+#include "Eigen\Sparse"
 typedef Eigen::Vector2f vec2;
 typedef Eigen::Vector3f vec3;
 typedef Eigen::Vector2i ivec2;
 typedef Eigen::Vector3i ivec3;
-
-
 
 const char *get_file_data(size_t *data_len, const char *file_path) {
 	FILE *file = fopen(file_path, "rb");
@@ -153,7 +152,6 @@ void write_obj(tinyobj_attrib_t attr, tinyobj_shape_t *shapes, size_t num_shapes
 #include "probe_reducer.hpp"
 #include "ray_tracer.hpp"
 #include "relight_rays.hpp"
-#include "google_spherical_harmonics\spherical_harmonics.h"
 
 iAABB2 transform_to_pixel_space(AABB2 bounding_box, Atlas_Output_Mesh *mesh) {
 	iAABB2 ret;
@@ -186,6 +184,7 @@ vec3 compute_barycentric_coords(vec2 p, Triangle2 &tri) {
 struct Receiver {
 	vec3 pos;
 	vec3 norm;
+	ivec2 px;
 };
 
 void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, std::vector<Receiver> &receivers) {
@@ -225,37 +224,12 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 			if (pixel_is_processed[x][y])continue;
 			ivec2 pixel = ivec2(x, y);
 			vec3 baryc = compute_barycentric_coords(get_pixel_center(pixel), uv_tri);
-#if 0
-			printf("(%f %f), <(%f %f),(%f %f),(%f %f)>\n",
-				get_pixel_center(pixel).x(),
-				get_pixel_center(pixel).y(),
-				uv_tri.a.x(),
-				uv_tri.a.y(),
-				uv_tri.b.x(),
-				uv_tri.b.y(),
-				uv_tri.c.x(),
-				uv_tri.c.y()
-				);
-
-			printf("(%f %f %f)>\n",
-				baryc.x(),
-				baryc.y(),
-				baryc.z()
-			);
-
-			vec2 recreation = uv_tri.a* baryc.x() + uv_tri.b* baryc.y() + uv_tri.c * baryc.z();
-			printf("(%f %f)>\n",
-				recreation.x(),
-				recreation.y()
-			);
-#endif
-
 
 			if (baryc.x()>0 && baryc.y()>0 && baryc.z()>0) {
 				pixel_is_processed[x][y] = true;
 				vec3 pos = vert_a * baryc.x() + vert_b * baryc.y() + vert_c * baryc.z();
 				vec3 norm = norm_a * baryc.x() + norm_b * baryc.y() + norm_c * baryc.z();
-				receivers.push_back({ pos,norm });
+				receivers.push_back({ pos,norm,pixel});
 			}
 		}
 	}
@@ -302,70 +276,31 @@ void generate_normals(Mesh *mesh) {
 // Daniel, 11 Feb 2018 
 
 
-float pi = 3.1415;
-
-// coeffs of the first 4 sh's
-float sh_coeffs[16] =
-{
-	1 / (2 * sqrt(pi)),        // 0, 0
-
-	-sqrt(3) / (2 * sqrt(pi)),  // 1,-1
-	+sqrt(3) / (2 * sqrt(pi)),  // 1, 0
-	-sqrt(3) / (2 * sqrt(pi)),  // 1,+1
-
-	+sqrt(15) / (2 * sqrt(pi)),  // 2, -2
-	-sqrt(15) / (2 * sqrt(pi)),  // 2, -1
-	+sqrt(5) / (4 * sqrt(pi)),  // 2, -0
-	-sqrt(15) / (2 * sqrt(pi)),  // 2,  1
-	+sqrt(15) / (4 * sqrt(pi)),  // 2,  2
-
-
-	-sqrt(70) / (8 * sqrt(pi)),  //3, -3
-	sqrt(105) / (2 * sqrt(pi)),  //3, -2
-	-sqrt(42) / (8 * sqrt(pi)),  //3, -1
-	sqrt(7) / (4 * sqrt(pi)),  //3,  0
-	-sqrt(42) / (8 * sqrt(pi)),  //3,  1
-	sqrt(105) / (4 * sqrt(pi)), //3,  2
-	-sqrt(70) / (8 * sqrt(pi))   //3, 3
-};
-
-float sh_basis_func(vec3 v, int i) {
-	float x = v.x();
-	float y = v.y();
-	float z = v.z();
-
-	switch (i) {
-	case 0: return sh_coeffs[i];
-
-	case 1: return sh_coeffs[i] * y;
-	case 2: return sh_coeffs[i] * z;
-	case 3: return sh_coeffs[i] * x;
-
-	case 4: return sh_coeffs[i] * y*x;
-	case 5: return sh_coeffs[i] * y*z;
-	case 6: return sh_coeffs[i] * (3 * z*z - 1);
-	case 7: return sh_coeffs[i] * x*z;
-	case 8: return sh_coeffs[i] * (x*x - y * y);
-
-	case 9: return sh_coeffs[i] * y*(3 * x*x - y * y);
-	case 10: return sh_coeffs[i] * x*y*z;
-	case 11: return sh_coeffs[i] * y*(-1 + 5 * z*z);
-	case 12: return sh_coeffs[i] * z*(5 * z*z - 3);
-	case 13: return sh_coeffs[i] * x*(-1 + 5 * z*z);
-	case 14: return sh_coeffs[i] * (x*x - y * y)*z;
-	case 15: return sh_coeffs[i] * x*(x*x - 3 * y * y);
-	}
-}
 
 
 
 
-//#include "local_transport.hpp"
 #include "visibility.hpp"
 
 
 int main(int argc, char * argv[]) {
 	
+	{
+		std::vector<Eigen::Triplet<float>> coeffs;
+		coeffs.push_back({ 0,0,1.1f });
+		coeffs.push_back({ 1,1,2.2f });
+		coeffs.push_back({ 2,2,3.3f });
+		Eigen::SparseMatrix<float>mat(4,4);
+		mat.setFromTriplets(coeffs.begin(), coeffs.end());
+
+		mat4 m = mat;
+		int q = 0;
+
+	
+	}
+
+
+
 
 	tinyobj_attrib_t attr;
 	tinyobj_shape_t* shapes = NULL;
@@ -408,18 +343,6 @@ int main(int argc, char * argv[]) {
 		m.indices = indices;
 		generate_normals(&m);
 	}
-
-	int test_idx[] = { 0,1,2,0,2,3 };
-	vec3 test_verts[] = {vec3(-1,-1,0),vec3(1,-1,0),vec3(1,1,0),vec3(-1,1,0) };
-	vec3 test_normals[] = { vec3(0,0,-1),vec3(0,0,-1),vec3(0,0,-1),vec3(0,0,-1) };
-	Mesh test;
-	test.indices = test_idx;
-	test.verts   = test_verts;
-	test.num_indices = 6;
-	test.num_verts = 4;
-	test.normals = test_normals;
-
-
 
 	// convert to theklas input format
 	Atlas_Input_Face   *faces = (Atlas_Input_Face  *)malloc(sizeof(Atlas_Input_Face)*attr.num_face_num_verts);
@@ -492,8 +415,6 @@ int main(int argc, char * argv[]) {
 		Atlas_Error error = Atlas_Error_Success;
 		output_mesh = atlas_generate(&input_mesh, &atlas_options, &error);
 
-
-
 		printf("Atlas mesh has %d verts\n", output_mesh->vertex_count);
 		printf("Atlas mesh has %d triangles\n", output_mesh->index_count / 3);
 		printf("Produced debug_packer_final.tga\n");
@@ -552,8 +473,6 @@ int main(int argc, char * argv[]) {
 	}
 
 	
-
-
 	// Free stuff
 	atlas_free(output_mesh);
 	free(faces);
