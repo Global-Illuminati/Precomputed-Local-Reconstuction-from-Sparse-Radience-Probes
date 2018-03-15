@@ -35,4 +35,7 @@
     <None Include="spherical_harmonics.frag" />
     <None Include="visibility.frag" />
   </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="ThirdParty\Eigen\eigen.natvis" />
+  </ItemGroup>
 </Project>
