@@ -355,7 +355,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	GLuint receiver_normal_uniform_location = glGetUniformLocation(visibility_shader, "receiver_normal");
 	GLuint receiver_pos_uniform_location = glGetUniformLocation(visibility_shader, "receiver_pos");
 
-	int num_pbo_bytes = num_probes_per_rec * receivers.size() * sizeof(float) * 16 * 6; // 6 = one for each cube map(later merged)
+	int num_pbo_bytes = num_probes_per_rec * receivers.size() * sizeof(float) * 16; 
 	GLuint pbo;
 	glGenBuffers(1, &pbo);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
@@ -407,16 +407,16 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 			DrawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
 		}
 
+		glUseProgram(visibility_shader);
+
+		// @robustness assumes vec3 has no padding.
+		glUniform3fv(probe_pos_uniform_location, num_probes_per_rec, probe_positions[0].data());
+		glUniform1fv(probe_weight_uniform_location, num_probes_per_rec, probe_weights);
+		glUniform3fv(receiver_pos_uniform_location, 1, receiver->position.data());
+		glUniform3fv(receiver_normal_uniform_location, 1, receiver->normal.data());
+
 		// render the visibility 
 		for (int cube_map_index = 0; cube_map_index < 6; cube_map_index++) {
-			// render visibility 
-			glUseProgram(visibility_shader);
-			// @robustness assumes vec3 has no padding.
-			glUniform3fv(probe_pos_uniform_location, num_probes_per_rec, probe_positions[0].data());
-			glUniform1fv(probe_weight_uniform_location, num_probes_per_rec, probe_weights);
-			glUniform3fv(receiver_pos_uniform_location, 1, receiver->position.data());
-			glUniform3fv(receiver_normal_uniform_location, 1, receiver->normal.data());
-
 			for (int i = 0; i < num_probes_per_rec; i++) {
 				glActiveTexture(GL_TEXTURE0 + i);
 				glBindTexture(GL_TEXTURE_CUBE_MAP, receiver->visible_probes[i].depth_cube_map.cube_map);
@@ -432,7 +432,6 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 			glDrawBuffers(num_probes_per_rec, DrawBuffers);
 
 			//check_fbo();
-
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, (void *)0);
 		}
@@ -441,6 +440,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 		for (int i = 0; i < num_probes_per_rec; i += 2) {
 			if (receiver->num_visible_probes <= i) break;
 			glUseProgram(spherical_harmonics_shader);
+			glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 			for (int cube_map_index = 0; cube_map_index < 6; cube_map_index++) {
 				glActiveTexture(GL_TEXTURE0);
 				glBindTexture(GL_TEXTURE_2D, visibility[cube_map_index].textures[i]);
@@ -452,9 +452,9 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 					glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + j, shs.textures[j], 0);
 
 				glDrawBuffers(8, DrawBuffers);
-
+				
 				//check_fbo();
-				glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
+
 				// draws a full screen triangle with (vertices overridden by vertex shader)
 				glDrawArrays(GL_TRIANGLES, 0, 3);
 			}
@@ -480,8 +480,10 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 				num_written_shs += 4;
 			}
 
+			// only output this if inside of radius 
 			if (receiver->num_visible_probes > i + 1) {
 				for (int j = 0; j < 4; j++) {
+					// average the shs samples 
 					glBindTexture(GL_TEXTURE_2D, shs.textures[j + 4]);
 					glGenerateMipmap(GL_TEXTURE_2D);
 
@@ -511,23 +513,24 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	Eigen::SparseMatrix<float> coeff_matrix(receivers.size()*num_coeffs_per_probe,num_probes);
 	std::vector<Eigen::Triplet<float>> coefficients;
 
+	int num_handled_coefficients = 0;
 	for (int receiver_index = 0; receiver_index < receivers.size(); receiver_index++) {
-		for (int probe_index = 0; probe_index < num_probes_per_rec; probe_index++) {
+		for (int probe_index = 0; probe_index < receivers[receiver_index]->num_visible_probes; probe_index++) {
 			for (int i = 0; i < num_coeffs_per_probe; i++) {
-				coefficients.push_back(
-					{
-						receiver_index*num_coeffs_per_probe + i,
-						receivers[receiver_index]->visible_probes[probe_index].index,
-						sh_coeffs[receiver_index*num_coeffs_per_rec + i]
-					}
-				);
-				// output coeffs to file here?
-				// we should do an svd decomposition but maybe output first so we don't have to wait 50 min to debug...
-				receivers[receiver_index]->visible_probes[probe_index].sh_coeffs[i]
-					= sh_coeffs[receiver_index*num_coeffs_per_rec + i];
+				float coeff = sh_coeffs[num_handled_coefficients++];
+				if (std::isnan(coeff)) {
+					__debugbreak();
+					coeff = 0.0f;
+				}
+				coefficients.push_back({
+					receiver_index*num_coeffs_per_probe + i,
+					receivers[receiver_index]->visible_probes[probe_index].index,
+					coeff
+				});
 			}
 		}
 	}
+
 
 	coeff_matrix.setFromTriplets(coefficients.begin(), coefficients.end());
 
@@ -695,8 +698,8 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 		for (int i = 0; i < num_probes_per_rec; i++) {
 			float dist = (receiver->position - receiver->visible_probes[i].position).norm();
 			float t = min(dist * inv_radius, 1.0f);
-			if (t < 1.0f) ++receiver->num_visible_probes;
 			receiver->visible_probes[i].weight = w(t);
+			if (receiver->visible_probes[i].weight > 0.0) ++receiver->num_visible_probes;
 		}
 		avg_num_visble_probes += receiver->num_visible_probes / (float)receivers.size();
 		max_num_visible_probes = max(max_num_visible_probes, receiver->num_visible_probes);

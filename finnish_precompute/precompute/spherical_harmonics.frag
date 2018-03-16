@@ -14,6 +14,7 @@ void main()
 		vec4 in_value = texelFetch(in_texture[i],ivec2(gl_FragCoord),0);
 		float weight = in_value.a;
 		vec3 probe_dir = in_value.xyz;
+		if(probe_dir == vec3(0,0,0)) continue;
 		vec3 v = normalize(probe_dir); 
 		float x = v.x;
 		float y = v.y;
