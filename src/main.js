@@ -21,6 +21,9 @@ var app;
 var gpuTimePanel;
 var picoTimer;
 
+var defaultShader;
+var shadowMapShader;
+
 var blitTextureDrawCall;
 var environmentDrawCall;
 
@@ -96,6 +99,52 @@ function loadTexture(imageName, options) {
 
 }
 
+function makeShader(name, shaderLoaderData) {
+
+	var programData = shaderLoaderData[name];
+	var program = app.createProgram(programData.vertexSource, programData.fragmentSource);
+	return program;
+
+}
+
+function loadObject(directory, objFilename, mtlFilename, modelMatrix) {
+
+	var objLoader = new OBJLoader();
+	var mtlLoader = new MTLLoader();
+
+	var path = 'assets/' + directory;
+
+	objLoader.load(path + objFilename, function(objects) {
+		mtlLoader.load(path + mtlFilename, function(materials) {
+			objects.forEach(function(object) {
+
+				var material = materials[object.material];
+				var diffuseMap  = (material.properties.map_Kd)   ? directory + material.properties.map_Kd   : 'default_diffuse.png';
+				var specularMap = (material.properties.map_Ks)   ? directory + material.properties.map_Ks   : 'default_specular.jpg';
+				var normalMap   = (material.properties.map_norm) ? directory + material.properties.map_norm : 'default_normal.jpg';
+
+				var vertexArray = createVertexArrayFromMeshInfo(object);
+
+				var drawCall = app.createDrawCall(defaultShader, vertexArray)
+				.uniformBlock('SceneUniforms', sceneUniforms)
+				.texture('u_diffuse_map', loadTexture(diffuseMap))
+				.texture('u_specular_map', loadTexture(specularMap))
+				.texture('u_normal_map', loadTexture(normalMap));
+
+				var shadowMappingDrawCall = app.createDrawCall(shadowMapShader, vertexArray);
+
+				meshes.push({
+					modelMatrix: modelMatrix || mat4.create(),
+					drawCall: drawCall,
+					shadowMapDrawCall: shadowMappingDrawCall
+				});
+
+			});
+		});
+	});
+
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Initialization etc.
 
@@ -141,15 +190,6 @@ function init() {
 
 	setupSceneUniforms();
 
-	var shaderPrograms = {};
-
-	function makeShader(name, data) {
-		var programData = data[name];
-		var program = app.createProgram(programData.vertexSource, programData.fragmentSource);
-		shaderPrograms[name] = program;
-		return program;
-	}
-
 	var shaderLoader = new ShaderLoader('src/shaders/');
 	shaderLoader.addShaderFile('common.glsl');
 	shaderLoader.addShaderFile('scene_uniforms.glsl');
@@ -174,41 +214,9 @@ function init() {
 		var probeVertexArray = createSphereVertexArray(0.08, 8, 8);
 		setupProbeDrawCall(probeVertexArray, unlitShader);
 
-		makeShader('default', data);
-		makeShader('shadowMapping', data);
-
-		var objLoader = new OBJLoader();
-		var mtlLoader = new MTLLoader();
-
-		objLoader.load('assets/sponza/sponza.obj', function(objects) {
-			mtlLoader.load("assets/sponza/sponza.mtl",function(materials){
-				for (var i = 0; i < objects.length; ++i) {
-					var material = undefined;
-					for(var m = 0; m<materials.length;m++){
-						if(materials[m].name === objects[i].material){
-							material = materials[m];
-						}
-					}
-
-					var vertexArray = createVertexArrayFromMeshInfo(objects[i]);
-
-					var drawCall = app.createDrawCall(shaderPrograms['default'], vertexArray)
-					.uniformBlock('SceneUniforms', sceneUniforms)
-					.texture('u_diffuse_map',  loadTexture('sponza/' + material.properties.map_Kd))
-					.texture('u_specular_map', loadTexture('sponza/' + material.properties.map_Ks))
-					.texture('u_normal_map',   loadTexture('sponza/' + material.properties.map_norm));
-
-					var shadowMappingDrawCall = app.createDrawCall(shaderPrograms['shadowMapping'], vertexArray);
-
-					var mesh = {
-						modelMatrix: mat4.create(),
-						drawCall: drawCall,
-						shadowMapDrawCall: shadowMappingDrawCall
-					};
-					meshes.push(mesh);
-				}
-			});
-		});
+		defaultShader = makeShader('default', data);
+		shadowMapShader = makeShader('shadowMapping', data);
+		loadObject('sponza/', 'sponza.obj', 'sponza.mtl');
 
 	});
 
@@ -337,17 +345,20 @@ function setupSceneUniforms() {
 }
 
 function createVertexArrayFromMeshInfo(meshInfo) {
+
 	var positions = app.createVertexBuffer(PicoGL.FLOAT, 3, meshInfo.positions);
 	var normals   = app.createVertexBuffer(PicoGL.FLOAT, 3, meshInfo.normals);
+	var tangents  = app.createVertexBuffer(PicoGL.FLOAT, 4, meshInfo.tangents);
 	var texCoords = app.createVertexBuffer(PicoGL.FLOAT, 2, meshInfo.uvs);
-	var tangents = app.createVertexBuffer(PicoGL.FLOAT,  4, meshInfo.tangents);
 
 	var vertexArray = app.createVertexArray()
 	.vertexAttributeBuffer(0, positions)
 	.vertexAttributeBuffer(1, normals)
 	.vertexAttributeBuffer(2, texCoords)
 	.vertexAttributeBuffer(3, tangents);
+
 	return vertexArray;
+
 }
 
 function setupProbeDrawCall(vertexArray, shader) {
