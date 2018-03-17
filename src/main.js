@@ -23,6 +23,7 @@ var picoTimer;
 
 var defaultShader;
 var shadowMapShader;
+var lightMapShader;
 
 var blitTextureDrawCall;
 var environmentDrawCall;
@@ -31,6 +32,10 @@ var sceneUniforms;
 
 var shadowMapSize = 4096;
 var shadowMapFramebuffer;
+
+var lightMapSize = 1024;
+var lightMapFramebuffer;
+
 
 var camera;
 var directionalLight;
@@ -43,6 +48,7 @@ var probeLocations = [
 	-10, 14, 0,
 	+10, 14, 0
 ]
+
 
 window.addEventListener('DOMContentLoaded', function () {
 
@@ -131,12 +137,19 @@ function loadObject(directory, objFilename, mtlFilename, modelMatrix) {
 				.texture('u_specular_map', loadTexture(specularMap))
 				.texture('u_normal_map', loadTexture(normalMap));
 
+				var lightMappingDrawCall = app.createDrawCall(lightMapShader, vertexArray)
+				.uniformBlock('SceneUniforms', sceneUniforms)
+				.texture('u_diffuse_map', loadTexture(diffuseMap))
+				.texture('u_specular_map', loadTexture(specularMap))
+				.texture('u_normal_map', loadTexture(normalMap));
+				
 				var shadowMappingDrawCall = app.createDrawCall(shadowMapShader, vertexArray);
 
 				meshes.push({
 					modelMatrix: modelMatrix || mat4.create(),
 					drawCall: drawCall,
-					shadowMapDrawCall: shadowMappingDrawCall
+					shadowMapDrawCall: shadowMappingDrawCall,
+					lightmapDrawCall: lightMappingDrawCall
 				});
 
 			});
@@ -187,6 +200,8 @@ function init() {
 
 	directionalLight = new DirectionalLight();
 	setupDirectionalLightShadowMapFramebuffer(shadowMapSize);
+	setupLightmapFramebuffer(lightMapSize);
+	
 
 	setupSceneUniforms();
 
@@ -199,6 +214,7 @@ function init() {
 	shaderLoader.addShaderProgram('environment', 'environment.vert.glsl', 'environment.frag.glsl');
 	shaderLoader.addShaderProgram('textureBlit', 'screen_space.vert.glsl', 'texture_blit.frag.glsl');
 	shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
+	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
 	shaderLoader.load(function(data) {
 
 		var fullscreenVertexArray = createFullscreenVertexArray();
@@ -216,7 +232,9 @@ function init() {
 
 		defaultShader = makeShader('default', data);
 		shadowMapShader = makeShader('shadowMapping', data);
-		loadObject('sponza/', 'sponza.obj', 'sponza.mtl');
+		lightMapShader = makeShader('lightMapping', data);
+		
+		loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
 
 	});
 
@@ -309,8 +327,29 @@ function setupDirectionalLightShadowMapFramebuffer(size) {
 	shadowMapFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
 	.depthTarget(depthBuffer);
-
 }
+
+function setupLightmapFramebuffer(size) {
+
+	var colorBuffer = app.createTexture2D(size, size, {
+		format: PicoGL.RED,
+		internalFormat: PicoGL.RGBA8,
+		minFilter: PicoGL.NEAREST,
+		magFilter: PicoGL.NEAREST
+	});
+
+	// we don't need no depth texture.. are we allowed not to have one somehow?
+	// not adding it causes it to be undefined...
+	var depthBuffer = app.createTexture2D(size, size, {
+		format: PicoGL.DEPTH_COMPONENT
+	});
+
+	lightmapFramebuffer = app.createFramebuffer()
+	.colorTarget(0, colorBuffer)
+	.depthTarget(depthBuffer); 
+}
+
+
 
 function setupSceneUniforms() {
 
@@ -350,12 +389,14 @@ function createVertexArrayFromMeshInfo(meshInfo) {
 	var normals   = app.createVertexBuffer(PicoGL.FLOAT, 3, meshInfo.normals);
 	var tangents  = app.createVertexBuffer(PicoGL.FLOAT, 4, meshInfo.tangents);
 	var texCoords = app.createVertexBuffer(PicoGL.FLOAT, 2, meshInfo.uvs);
+	var lightmapCoords = app.createVertexBuffer(PicoGL.FLOAT, 2, meshInfo.uv2s);
 
 	var vertexArray = app.createVertexArray()
 	.vertexAttributeBuffer(0, positions)
 	.vertexAttributeBuffer(1, normals)
 	.vertexAttributeBuffer(2, texCoords)
-	.vertexAttributeBuffer(3, tangents);
+	.vertexAttributeBuffer(3, tangents)
+	.vertexAttributeBuffer(4, lightmapCoords);
 
 	return vertexArray;
 
@@ -406,7 +447,11 @@ function render() {
 		camera.update();
 
 		renderShadowMap();
+		renderLightmap();
+
+		//renderTextureToScreen(lightMap);
 		renderScene();
+
 
 		var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
 		renderProbes(viewProjection);
@@ -415,7 +460,7 @@ function render() {
 		renderEnvironment(inverseViewProjection)
 
 		// Call this to get a debug render of the passed in texture
-		//renderTextureToScreen(shadowMap);
+		renderTextureToScreen(lightmapFramebuffer.colorTextures[0]);
 
 	}
 	picoTimer.end();
@@ -478,6 +523,31 @@ function renderShadowMap() {
 		.uniform('u_light_projection_from_world', lightViewProjection)
 		.draw();
 
+	}
+}
+
+function renderLightmap() {
+	var dirLightViewDirection = directionalLight.viewSpaceDirection(camera);
+	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
+	var shadowMap = shadowMapFramebuffer.depthTexture;
+
+	app.drawFramebuffer(lightmapFramebuffer)
+	.viewport(0, 0, lightMapSize, lightMapSize)
+	.noDepthTest()
+	.noBlend()
+	.clearColor(0,0,0)
+	.clear();
+	
+	for (var i = 0, len = meshes.length; i < len; ++i) {
+		var mesh = meshes[i];
+		mesh.lightmapDrawCall
+		.uniform('u_world_from_local', mesh.modelMatrix)
+		.uniform('u_view_from_world', camera.viewMatrix)
+		.uniform('u_dir_light_color', directionalLight.color)
+		.uniform('u_dir_light_view_direction', dirLightViewDirection)
+		.uniform('u_light_projection_from_world', lightViewProjection)
+		.texture('u_shadow_map', shadowMap)
+		.draw();
 	}
 
 }
