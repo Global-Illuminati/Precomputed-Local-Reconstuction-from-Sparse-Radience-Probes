@@ -441,14 +441,23 @@ int main(int argc, char * argv[]) {
 				printf("Probe %d, relight ray %d:       %f %f\n", i, j, uv[0], uv[1]);
 			}
 		}
+
+		write_relight_uvs(probe_data, "../relight_uvs.dat");
+		write_relight_shs(relight_ray_directions, "../relight_shs.dat");
 	}
+
+
 
 	std::vector<Receiver>receivers;
 
 	{ // generate receivers
 		compute_receiver_locations(output_mesh, m, receivers);
+		FILE *f = fopen("../receiver_px_map.dat", "w");
+		for (Receiver rec: receivers){
+			fprintf(f, "%d %d\n", rec.px.x(),rec.px.y());
+		}
+		fclose(f);
 	}
-
 
 	{ // compute local transport
 		visibility(receivers, probes, &m);
