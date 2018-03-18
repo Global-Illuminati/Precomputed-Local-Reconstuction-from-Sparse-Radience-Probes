@@ -11,6 +11,7 @@ GLFWwindow* window;
 
 // is 8 enough? on average 10 or what ever
 const int num_probes_per_rec = 8;
+const int num_sh_coeffs = 16;
 
 struct 	DepthCubeMap {
 	GLuint cube_map;
@@ -29,7 +30,7 @@ struct ReceiverData {
 		int index;
 		float weight;
 		vec3 position;
-		float sh_coeffs[16];
+		float sh_coeffs[num_sh_coeffs];
 		DepthCubeMap depth_cube_map;
 	} visible_probes[num_probes_per_rec];
 	int num_visible_probes;
@@ -355,7 +356,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	GLuint receiver_normal_uniform_location = glGetUniformLocation(visibility_shader, "receiver_normal");
 	GLuint receiver_pos_uniform_location = glGetUniformLocation(visibility_shader, "receiver_pos");
 
-	int num_pbo_bytes = num_probes_per_rec * receivers.size() * sizeof(float) * 16; 
+	int num_pbo_bytes = num_probes_per_rec * receivers.size() * sizeof(float) * num_sh_coeffs; 
 	GLuint pbo;
 	glGenBuffers(1, &pbo);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
@@ -507,7 +508,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	}
 	float* sh_coeffs = (float*)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
 
-	int num_coeffs_per_probe = 16;
+	int num_coeffs_per_probe = num_sh_coeffs;
 	int num_coeffs_per_rec = num_probes_per_rec * num_coeffs_per_probe;
 
 	Eigen::SparseMatrix<float> coeff_matrix(receivers.size()*num_coeffs_per_probe,num_probes);
@@ -689,7 +690,7 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 	}
 
 	float avg_num_visble_probes = 0.0;
-	int min_num_visible_probes = 16;
+	int min_num_visible_probes = num_probes_per_rec;
 	int max_num_visible_probes = 0;
 	int num_with_zero_visible = 0;
 	float inv_radius = 1.0 / radius;

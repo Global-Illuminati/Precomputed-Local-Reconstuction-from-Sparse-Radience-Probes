@@ -211,6 +211,7 @@ function init() {
 	shaderLoader.addShaderFile('mesh_attributes.glsl');
 	shaderLoader.addShaderProgram('unlit', 'unlit.vert.glsl', 'unlit.frag.glsl');
 	shaderLoader.addShaderProgram('default', 'default.vert.glsl', 'default.frag.glsl');
+	shaderLoader.addShaderProgram('default_lm', 'default_lm.vert.glsl', 'default_lm.frag.glsl');
 	shaderLoader.addShaderProgram('environment', 'environment.vert.glsl', 'environment.frag.glsl');
 	shaderLoader.addShaderProgram('textureBlit', 'screen_space.vert.glsl', 'texture_blit.frag.glsl');
 	shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
@@ -230,7 +231,7 @@ function init() {
 		var probeVertexArray = createSphereVertexArray(0.08, 8, 8);
 		setupProbeDrawCall(probeVertexArray, unlitShader);
 
-		defaultShader = makeShader('default', data);
+		defaultShader = makeShader('default_lm', data);
 		shadowMapShader = makeShader('shadowMapping', data);
 		lightMapShader = makeShader('lightMapping', data);
 		
@@ -334,8 +335,8 @@ function setupLightmapFramebuffer(size) {
 	var colorBuffer = app.createTexture2D(size, size, {
 		format: PicoGL.RED,
 		internalFormat: PicoGL.RGBA8,
-		minFilter: PicoGL.NEAREST,
-		magFilter: PicoGL.NEAREST
+		minFilter: PicoGL.LINEAR,
+		magFilter: PicoGL.LINEAR
 	});
 
 	// we don't need no depth texture.. are we allowed not to have one somehow?
@@ -460,7 +461,7 @@ function render() {
 		renderEnvironment(inverseViewProjection)
 
 		// Call this to get a debug render of the passed in texture
-		renderTextureToScreen(lightmapFramebuffer.colorTextures[0]);
+		// renderTextureToScreen(lightmapFramebuffer.colorTextures[0]);
 
 	}
 	picoTimer.end();
@@ -557,6 +558,7 @@ function renderScene() {
 	var dirLightViewDirection = directionalLight.viewSpaceDirection(camera);
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
+	var lightMap = lightmapFramebuffer.colorTextures[0];
 
 	app.defaultDrawFramebuffer()
 	.defaultViewport()
@@ -566,9 +568,7 @@ function renderScene() {
 	.clear();
 
 	for (var i = 0, len = meshes.length; i < len; ++i) {
-
 		var mesh = meshes[i];
-
 		mesh.drawCall
 		.uniform('u_world_from_local', mesh.modelMatrix)
 		.uniform('u_view_from_world', camera.viewMatrix)
@@ -577,11 +577,11 @@ function renderScene() {
 		.uniform('u_dir_light_view_direction', dirLightViewDirection)
 		.uniform('u_light_projection_from_world', lightViewProjection)
 		.texture('u_shadow_map', shadowMap)
+		.texture('u_light_map', lightMap)
 		.draw();
-
 	}
-
 }
+
 
 function renderProbes(viewProjection) {
 
