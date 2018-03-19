@@ -65,7 +65,7 @@ void write_relight_uvs(const std::vector<ProbeData> &probe_data, char *file_path
 	for (int i = 0; i < probe_data.size(); i++) {
 		for (int j = 0; j < RELIGHT_RAYS_PER_PROBE; j++) {
 			vec2 uv = probe_data[i].relight_rays_uv[j];
-			fprintf(f, "%f %f", uv.x(), uv.y());
+			fprintf(f, "%f %f ", uv.x(), uv.y());
 		}
 		fprintf(f,"\n");
 	}
