@@ -49,6 +49,9 @@ var probeLocations = [
 	+10, 14, 0
 ]
 
+var num_probes;
+var relight_uvs;
+var relight_shs;
 
 window.addEventListener('DOMContentLoaded', function () {
 
@@ -239,6 +242,33 @@ function init() {
 
 	});
 
+	var dat_loader = new DatLoader();
+	var num_loads = 2;
+	
+	var loading_done = function(){
+		--num_loads;
+		if(num_loads == 0){
+			num_probes = relight_uvs.length;
+
+			// init probe rendering related stuff
+			// ...
+			
+		}
+	}
+	dat_loader.load("assets/precompute/relight_uvs.dat",
+	function(value) {
+		relight_uvs = value;
+		num_probes = relight_uvs.length;
+		relight_uvs.map(x=>x.map(y=> y==-1?-1:y/1024));
+		loading_done();
+	});
+
+	dat_loader.load("assets/precompute/relight_shs.dat",
+	function(value) {
+		relight_shs = value;
+		loading_done();
+	});
+
 }
 
 function createFullscreenVertexArray() {
@@ -333,11 +363,14 @@ function setupDirectionalLightShadowMapFramebuffer(size) {
 function setupLightmapFramebuffer(size) {
 
 	var colorBuffer = app.createTexture2D(size, size, {
-		format: PicoGL.RED,
 		internalFormat: PicoGL.RGBA8,
 		minFilter: PicoGL.LINEAR,
-		magFilter: PicoGL.LINEAR
+		magFilter: PicoGL.LINEAR,
+		wrapS:gl.CLAMP_TO_BORDER,
+		wrapT:gl.CLAMP_TO_BORDER,
 	});
+	// do we need to set border color -> 0? probs defult.
+	// pico gl won't let us? :(
 
 	// we don't need no depth texture.. are we allowed not to have one somehow?
 	// not adding it causes it to be undefined...
