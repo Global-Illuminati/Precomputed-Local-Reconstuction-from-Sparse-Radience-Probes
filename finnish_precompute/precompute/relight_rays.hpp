@@ -77,7 +77,7 @@ extern const int num_sh_coeffs;
 void write_relight_shs(std::vector<vec3> &relight_dirs, char *file_path) {
 	FILE *f = fopen(file_path, "w");
 
-	fprintf(f, "%d, %d\n",relight_dirs.size(), num_sh_coeffs);
+	fprintf(f, "%d %d\n",relight_dirs.size(), num_sh_coeffs);
 	for (int i = 0; i < relight_dirs.size(); i++) {
 		vec3 v = relight_dirs[i].normalized();
 		float x = v.x();

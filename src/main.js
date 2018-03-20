@@ -274,6 +274,11 @@ function init() {
 		// console.log(matrix);
 	});
 
+	dat_loader.load("assets/precompute/probes.dat", function(value) {
+		probeLocations = value.reduce( (a,b) => a.concat(b) );
+		console.log(value);
+	});
+
 }
 
 function createFullscreenVertexArray() {
@@ -486,7 +491,7 @@ function render() {
 		camera.update();
 
 		renderShadowMap();
-		renderLightmap();
+			renderLightmap();
 
 		//renderTextureToScreen(lightMap);
 		renderScene();
