@@ -21,7 +21,7 @@ implementation of: https://users.aalto.fi/~silvena4/Projects/RTGI/index.html
 	- Output: 16 floats for each principal component (~16)
 
 - [ ]  Calculate GI (apply U matrix):
-	- Input: PC-probes 16: probes, 16 components for each, SIGMA_VT Matrix as 16 components for each pixel, (4 textures)
+	- Input: PC-probes 16: probes, 16 components for each, SIGMA_VT Matrix as 16\*16 components for each pixel, (16 textures)
 	- Output: GI_lightmap 
 
 - [x]  Render Scene with GI:
