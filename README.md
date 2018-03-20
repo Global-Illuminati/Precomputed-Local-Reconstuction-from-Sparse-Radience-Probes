@@ -16,11 +16,11 @@ implementation of: https://users.aalto.fi/~silvena4/Projects/RTGI/index.html
 	- Input: 100\*16 shs_coeffs, ~80\*100 relight uvs, lightmap
 	- Output: 16 floats for each probe (4 rgba32f textures)
 
-- [ ]  Transform to principal component basis (apply U matrix)
+- [ ]  Transform to principal component basis (apply SIGMA_VT matrix)
 	- Input: 16 floats for each probe (~80), U matrix as a texture probably (~80 * ~16)
 	- Output: 16 floats for each principal component (~16)
 
-- [ ]  Calculate GI (APPLY SIGMA_VT Matrix):
+- [ ]  Calculate GI (apply U matrix):
 	- Input: PC-probes 16: probes, 16 components for each, SIGMA_VT Matrix as 16 components for each pixel, (4 textures)
 	- Output: GI_lightmap 
 
