@@ -252,7 +252,7 @@ function init() {
 
 			// init probe rendering related stuff
 			// ...
-			
+
 		}
 	}
 	dat_loader.load("assets/precompute/relight_uvs.dat",
@@ -267,6 +267,11 @@ function init() {
 	function(value) {
 		relight_shs = value;
 		loading_done();
+	});
+	var matrix_loader = new MatrixLoader();
+
+	matrix_loader.load("assets/precompute/sigma_v.matrix", function(matrix){
+		// console.log(matrix);
 	});
 
 }
@@ -366,8 +371,8 @@ function setupLightmapFramebuffer(size) {
 		internalFormat: PicoGL.RGBA8,
 		minFilter: PicoGL.LINEAR,
 		magFilter: PicoGL.LINEAR,
-		wrapS:gl.CLAMP_TO_BORDER,
-		wrapT:gl.CLAMP_TO_BORDER,
+		//wrapS:gl.CLAMP_TO_BORDER,
+		//wrapT:gl.CLAMP_TO_BORDER,
 	});
 	// do we need to set border color -> 0? probs defult.
 	// pico gl won't let us? :(
