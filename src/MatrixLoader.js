@@ -8,7 +8,7 @@ MatrixLoader.prototype = {
     constructor: MatrixLoader(),
 
     //TODO: break loader into separate file and send callbacks to load function as params
-    load: function(url, onload) {
+    load: function(url, onload, typed_array) {
         var xhr = new XMLHttpRequest();
         //Send date as request parameter to avoid caching issues
         xhr.open('GET', url + "?t=" + new Date().getTime(), true);
@@ -16,25 +16,19 @@ MatrixLoader.prototype = {
         xhr.responseType = 'arraybuffer';
         xhr.onload = function() {
             if(xhr.status == 200)
-                onload(scope.read(xhr.response));
+                onload(scope.read(xhr.response,typed_array));
             else 
                 console.error('matrix loader could not load the requested file:',url);
         }
         xhr.send();
     },
 
-    read: function(buffer) {
+    read: function(buffer,typed_array) {
         var dataview = new DataView(buffer);
-        console.log(buffer);
         var w = dataview.getInt32(0, true);
         var h = dataview.getInt32(4, true);
-        console.log(w,h);
-        var ret = new Float32Array((buffer.byteLength-8) / 4);
+        var ret = new typed_array(buffer,8);
         if(w*h != ret.length) console.error('matrix dimensions and data length is inconsistent');
-        for (var i = 0; i < ret.length; i++) {
-            ret[i] = dataview.getFloat32(i * 4+8, true);
-        }
-        
         return {data:ret,width:w,height:h};
     },
 }

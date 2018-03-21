@@ -538,7 +538,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	RedSVD::RedSVD<Eigen::SparseMatrix<float>> s;
 	s.compute(coeff_matrix, 16);
 
-	store_matrix(s.matrixU(), "u.matrix");
+	store_matrix(s.matrixU().transpose(), "u.matrix"); // transpose to store with all probes adjecent to each other 
 	auto SvT = Eigen::DiagonalMatrix<float, Eigen::Dynamic>(s.singularValues()) * s.matrixV().transpose();
 	store_matrix(SvT, "simga_v.matrix");
 

@@ -452,9 +452,15 @@ int main(int argc, char * argv[]) {
 
 	{ // generate receivers
 		compute_receiver_locations(output_mesh, m, receivers);
-		FILE *f = fopen("../receiver_px_map.dat", "w");
+		FILE *f = fopen("../receiver_px_map.imatrix", "wb");
+		int num_recs = receivers.size();
+		int num_comps = 2;
+
+		fwrite(&num_recs, sizeof(num_recs),1,f);
+		fwrite(&num_comps, sizeof(num_comps), 1, f);
+
 		for (Receiver rec: receivers){
-			fprintf(f, "%d %d\n", rec.px.x(),rec.px.y());
+			fwrite(rec.px.data(), sizeof(int), 2, f);
 		}
 		fclose(f);
 	}

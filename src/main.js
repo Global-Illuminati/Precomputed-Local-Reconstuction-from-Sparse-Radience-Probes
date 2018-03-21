@@ -52,6 +52,10 @@ var probeLocations = [
 var num_probes;
 var relight_uvs;
 var relight_shs;
+var sigma_v_texture;
+
+var u_texture;
+var px_map_vao;
 
 window.addEventListener('DOMContentLoaded', function () {
 
@@ -106,6 +110,40 @@ function loadTexture(imageName, options) {
 	image.src = 'assets/' + imageName;
 	return texture;
 
+}
+
+function makeTextureFromMatrix1(matrix) {
+	var options = {};
+	options['minFilter'] = PicoGL.LINEAR;
+	options['magFilter'] = PicoGL.LINEAR;
+	options['mipmaps'] = false;
+	options['format'] = PicoGL.RED;
+	options['internalFormat'] = PicoGL.R32F;
+	options['type'] = PicoGL.FLOAT;		
+	return app.createTexture2D(matrix.data, matrix.height, matrix.width, options);
+}
+
+function makeTexture4096fromFloatArr(data) {
+	var options = {};
+	options['minFilter'] = PicoGL.LINEAR;
+	options['magFilter'] = PicoGL.LINEAR;
+	options['mipmaps'] = false;
+	options['format'] = PicoGL.RGBA;
+	options['internalFormat'] = PicoGL.RGBA32F;
+	options['type'] = PicoGL.FLOAT;
+
+	// @ROBUSTNESS, spec requires support of only 1024x1024 but if the exist on my laptop maybe it's fine?
+	//              if the iphone 4s supports it maybe it should be fine for most pcs?
+	// 				also in the long term we'd like to compress the data better anyway, 200meg is a bit much for my taste
+	// 				and they get away with 80meg in the paper so we'll probably do what they do anyway
+	// 				but for now, here we are.
+
+	var aligned_length = (data.length/4 + 4095) & ~4095;
+	console.log(data.length/4);
+	image_data = new Float32Array(aligned_length*4);
+	console.log('height:',aligned_length>>12,'length:',data.length,'aligned length:',aligned_length);
+	image_data.set(data);
+	return app.createTexture2D(image_data, 4096, aligned_length >> 12,  options);
 }
 
 function makeShader(name, shaderLoaderData) {
@@ -219,6 +257,10 @@ function init() {
 	shaderLoader.addShaderProgram('textureBlit', 'screen_space.vert.glsl', 'texture_blit.frag.glsl');
 	shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
 	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
+	shaderLoader.addShaderProgram('calc_gi', 'calc_gi.vert.glsl', 'calc_gi.frag.glsl');
+	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
+	
+
 	shaderLoader.load(function(data) {
 
 		var fullscreenVertexArray = createFullscreenVertexArray();
@@ -234,9 +276,12 @@ function init() {
 		var probeVertexArray = createSphereVertexArray(0.08, 8, 8);
 		setupProbeDrawCall(probeVertexArray, unlitShader);
 
-		defaultShader = makeShader('default_lm', data);
+		defaultShader = makeShader('default', data);
 		shadowMapShader = makeShader('shadowMapping', data);
 		lightMapShader = makeShader('lightMapping', data);
+		
+		var calcGIShader = makeShader('calc_gi', data);
+		var transformPCProbesShader = makeShader('transform_pc_probes', data);
 		
 		loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
 
@@ -270,9 +315,17 @@ function init() {
 	});
 	var matrix_loader = new MatrixLoader();
 
-	matrix_loader.load("assets/precompute/sigma_v.matrix", function(matrix){
-		// console.log(matrix);
-	});
+	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
+		sigma_v_texture = makeTextureFromMatrix1(sigma_v);
+	}, Float32Array);
+
+	matrix_loader.load("assets/precompute/u.matrix", function(u_mat){
+		u_texture = makeTexture1024fromFloatArr(u_mat.data);
+	}, Float32Array);
+
+	matrix_loader.load("assets/precompute/receiver_px_map.imatrix", function(px_map_mat){
+		px_map_vao = createGIVAO(px_map_mat);
+	}, Int32Array);
 
 }
 
@@ -363,6 +416,7 @@ function setupDirectionalLightShadowMapFramebuffer(size) {
 	shadowMapFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
 	.depthTarget(depthBuffer);
+
 }
 
 function setupLightmapFramebuffer(size) {
@@ -441,6 +495,15 @@ function createVertexArrayFromMeshInfo(meshInfo) {
 
 }
 
+
+
+function createGIVAO(px_map) {
+	var buf_px_map  = app.createVertexBuffer(PicoGL.UNSIGNED_INT, 2, px_map.data);
+	var vertexArray = app.createVertexArray()
+	.vertexAttributeBuffer(0, buf_px_map);
+	return vertexArray;
+}
+
 function setupProbeDrawCall(vertexArray, shader) {
 
 	// We need at least one (x,y,z) pair to render any probes
@@ -488,7 +551,6 @@ function render() {
 		renderShadowMap();
 		renderLightmap();
 
-		//renderTextureToScreen(lightMap);
 		renderScene();
 
 
@@ -499,7 +561,7 @@ function render() {
 		renderEnvironment(inverseViewProjection)
 
 		// Call this to get a debug render of the passed in texture
-		// renderTextureToScreen(lightmapFramebuffer.colorTextures[0]);
+		//  renderTextureToScreen(lightmapFramebuffer.colorTextures[0]);
 
 	}
 	picoTimer.end();
