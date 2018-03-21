@@ -327,6 +327,11 @@ function init() {
 		px_map_vao = createGIVAO(px_map_mat);
 	}, Int32Array);
 
+	dat_loader.load("assets/precompute/probes.dat", function(value) {
+		probeLocations = value.reduce( (a,b) => a.concat(b) );
+		console.log(value);
+	});
+
 }
 
 function createFullscreenVertexArray() {
@@ -549,7 +554,7 @@ function render() {
 		camera.update();
 
 		renderShadowMap();
-		renderLightmap();
+			renderLightmap();
 
 		renderScene();
 

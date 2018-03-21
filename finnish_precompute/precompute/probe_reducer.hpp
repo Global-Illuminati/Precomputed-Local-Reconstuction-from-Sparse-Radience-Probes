@@ -143,6 +143,7 @@ void reduce_probes(std::vector<vec3> &probes, VoxelScene *scene, float rho_probe
 
 void write_probe_data(const std::vector<vec3> &probes, char *file_path) {
 	FILE *f = fopen(file_path, "w");
+	fprintf(f, "%d %d\n", probes.size(), 3);
 	for (const auto &probe : probes) {
 		fprintf(f, "%f %f %f\n", probe[0], probe[1], probe[2]);
 	}
