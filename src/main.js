@@ -36,6 +36,8 @@ var shadowMapFramebuffer;
 var lightMapSize = 1024;
 var lightMapFramebuffer;
 
+var probeRadianceFramebuffer;
+var probeRadianceDrawCall;
 
 var camera;
 var directionalLight;
@@ -50,8 +52,12 @@ var probeLocations = [
 ]
 
 var num_probes;
+var num_relight_rays;
+var num_sh_coefficients;
 var relight_uvs;
+var relight_uvs_texture;
 var relight_shs;
+var relight_shs_texture;
 var sigma_v_texture;
 
 var u_texture;
@@ -110,6 +116,36 @@ function loadTexture(imageName, options) {
 	image.src = 'assets/' + imageName;
 	return texture;
 
+}
+
+
+
+// num_relight_rays_per_probe * num_probes (RG32F where R,G = u,v coordinates)
+// ex. 100 * 72
+function makeTextureFromRelightUVs(relight_uvs) {
+    var options = {};
+    options['minFilter'] = PicoGL.NEAREST;
+    options['magFilter'] = PicoGL.NEAREST;
+    options['mipmaps'] = false;
+    options['format'] = PicoGL.RG;
+    options['internalFormat'] = PicoGL.RG32F;
+    options['type'] = PicoGL.FLOAT;
+    image_data = new Float32Array(relight_uvs.reduce( (a,b) => a.concat(b)).map( x => x==-1?0:x/lightMapSize));
+    return app.createTexture2D(image_data, num_relight_rays, num_probes, options);
+}
+
+// num_sh_coefficients * num_relight_rays
+// ex. 16 * 100
+function makeTextureFromRelightSHs(relight_shs) {
+    var options = {};
+    options['minFilter'] = PicoGL.NEAREST;
+    options['magFilter'] = PicoGL.NEAREST;
+    options['mipmaps'] = false;
+    options['format'] = PicoGL.RED;
+    options['internalFormat'] = PicoGL.R32F;
+    options['type'] = PicoGL.FLOAT;
+    var image_data = new Float32Array(relight_shs.reduce( (a,b) => a.concat(b)));
+    return app.createTexture2D(image_data, num_sh_coefficients, num_relight_rays, options);
 }
 
 function makeTextureFromMatrix1(matrix) {
@@ -210,6 +246,7 @@ function init() {
 
 	var canvas = document.getElementById('canvas');
 	app = PicoGL.createApp(canvas, { antialias: true });
+	app.floatRenderTargets();
 
 	stats = new Stats();
 	stats.showPanel(1); // (frame time)
@@ -242,7 +279,7 @@ function init() {
 	directionalLight = new DirectionalLight();
 	setupDirectionalLightShadowMapFramebuffer(shadowMapSize);
 	setupLightmapFramebuffer(lightMapSize);
-	
+
 
 	setupSceneUniforms();
 
@@ -259,7 +296,8 @@ function init() {
 	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
 	shaderLoader.addShaderProgram('calc_gi', 'calc_gi.vert.glsl', 'calc_gi.frag.glsl');
 	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
-	
+
+    shaderLoader.addShaderProgram('probeRadiance', 'probe_radiance.vert.glsl', 'probe_radiance.frag.glsl');
 
 	shaderLoader.load(function(data) {
 
@@ -282,6 +320,9 @@ function init() {
 		
 		var calcGIShader = makeShader('calc_gi', data);
 		var transformPCProbesShader = makeShader('transform_pc_probes', data);
+
+        var probeRadianceShader = makeShader('probeRadiance', data);
+        probeRadianceDrawCall = app.createDrawCall(probeRadianceShader, fullscreenVertexArray);
 		
 		loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
 
@@ -304,13 +345,21 @@ function init() {
 	function(value) {
 		relight_uvs = value;
 		num_probes = relight_uvs.length;
-		relight_uvs.map(x=>x.map(y=> y==-1?-1:y/1024));
+        num_relight_rays = relight_uvs[0].length / 2;
+        setupProbeRadianceFramebuffer();
+        relight_uvs_texture = makeTextureFromRelightUVs(relight_uvs);
 		loading_done();
 	});
 
 	dat_loader.load("assets/precompute/relight_shs.dat",
 	function(value) {
 		relight_shs = value;
+        num_sh_coefficients = relight_shs[0].length;
+
+        num_relight_rays = relight_shs.length;
+
+        relight_shs_texture = makeTextureFromRelightSHs(relight_shs);
+
 		loading_done();
 	});
 	var matrix_loader = new MatrixLoader();
@@ -329,7 +378,6 @@ function init() {
 
 	dat_loader.load("assets/precompute/probes.dat", function(value) {
 		probeLocations = value.reduce( (a,b) => a.concat(b) );
-		console.log(value);
 	});
 
 }
@@ -447,7 +495,20 @@ function setupLightmapFramebuffer(size) {
 	.depthTarget(depthBuffer); 
 }
 
+function setupProbeRadianceFramebuffer() {
 
+    var colorBuffer = app.createTexture2D(num_sh_coefficients, num_probes, {
+        internalFormat: PicoGL.RGBA8,
+        minFilter: PicoGL.NEAREST,
+        magFilter: PicoGL.NEAREST,
+    });
+    var depthBuffer = app.createTexture2D(num_sh_coefficients, num_probes, {
+        format: PicoGL.DEPTH_COMPONENT
+    });
+    probeRadianceFramebuffer = app.createFramebuffer()
+        .colorTarget(0, colorBuffer)
+        .depthTarget(depthBuffer);
+}
 
 function setupSceneUniforms() {
 
@@ -556,6 +617,9 @@ function render() {
 		renderShadowMap();
 			renderLightmap();
 
+        var lightmap = lightmapFramebuffer.colorTextures[0];
+        renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
+
 		renderScene();
 
 
@@ -567,6 +631,12 @@ function render() {
 
 		// Call this to get a debug render of the passed in texture
 		//  renderTextureToScreen(lightmapFramebuffer.colorTextures[0]);
+
+        if (probeRadianceFramebuffer) {
+			renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
+		}
+
+
 
 	}
 	picoTimer.end();
@@ -748,6 +818,27 @@ function renderTextureToScreen(texture) {
 	blitTextureDrawCall
 	.texture('u_texture', texture)
 	.draw();
+
+}
+
+function renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap) {
+
+    if (!probeRadianceDrawCall || !probeRadianceFramebuffer) {
+        return;
+    }
+
+    app.drawFramebuffer(probeRadianceFramebuffer)
+        .viewport(0, 0, num_sh_coefficients, num_probes)
+        .noDepthTest()
+        .noBlend()
+        .clearColor(0,0,0)
+        .clear();
+
+    probeRadianceDrawCall
+        .texture('u_relight_uvs_texture', relight_uvs_texture)
+        .texture('u_relight_shs_texture', relight_shs_texture)
+		.texture('u_lightmap', lightmap)
+        .draw();
 
 }
 
