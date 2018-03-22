@@ -44,6 +44,7 @@ var directionalLight;
 var meshes = [];
 
 var probeDrawCall;
+var probeVisualizeSHDrawCall;
 var probeLocations = [
 	-10, 4,  0,
 	+10, 4,  0,
@@ -298,6 +299,7 @@ function init() {
 	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
 
     shaderLoader.addShaderProgram('probeRadiance', 'probe_radiance.vert.glsl', 'probe_radiance.frag.glsl');
+    shaderLoader.addShaderProgram('probeVisualizeSH', 'probe_visualize_sh.vert.glsl', 'probe_visualize_sh.frag.glsl');
 
 	shaderLoader.load(function(data) {
 
@@ -310,9 +312,10 @@ function init() {
 		environmentDrawCall = app.createDrawCall(environmentShader, fullscreenVertexArray)
 		.texture('u_environment_map', loadTexture('environments/ocean.jpg', {}));
 
-		var unlitShader = makeShader('unlit', data);
-		var probeVertexArray = createSphereVertexArray(0.08, 8, 8);
-		setupProbeDrawCall(probeVertexArray, unlitShader);
+		var probeVertexArray = createSphereVertexArray(0.20, 32, 32);
+        var unlitShader = makeShader('unlit', data);
+        var probeVisualizeSHShader = makeShader('probeVisualizeSH', data);
+        setupProbeDrawCalls(probeVertexArray, unlitShader, probeVisualizeSHShader);
 
 		defaultShader = makeShader('default', data);
 		shadowMapShader = makeShader('shadowMapping', data);
@@ -570,7 +573,7 @@ function createGIVAO(px_map) {
 	return vertexArray;
 }
 
-function setupProbeDrawCall(vertexArray, shader) {
+function setupProbeDrawCalls(vertexArray, unlitShader, probeVisualizeSHShader) {
 
 	// We need at least one (x,y,z) pair to render any probes
 	if (probeLocations.length <= 3) {
@@ -582,13 +585,17 @@ function setupProbeDrawCall(vertexArray, shader) {
 		return;
 	}
 
-	// Set up for instanced drawing at the probe locations
-	var translations = app.createVertexBuffer(PicoGL.FLOAT, 3, new Float32Array(probeLocations));
-	vertexArray.instanceAttributeBuffer(10, translations);
+	num_probes = probeLocations.length / 3;
 
-	probeDrawCall = app.createDrawCall(shader, vertexArray)
+	// Set up for instanced drawing at the probe locations
+	var translations = app.createVertexBuffer(PicoGL.FLOAT, 3, new Float32Array(probeLocations))
+	vertexArray.instanceAttributeBuffer(10, translations);
+    console.log(probeLocations);
+
+	probeDrawCall = app.createDrawCall(unlitShader, vertexArray)
 	.uniform('u_color', vec3.fromValues(0, 1, 0));
 
+	probeVisualizeSHDrawCall = app.createDrawCall(probeVisualizeSHShader, vertexArray);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -622,9 +629,8 @@ function render() {
 
 		renderScene();
 
-
 		var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
-		renderProbes(viewProjection);
+		renderProbes(viewProjection, 'sh');
 
 		var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
 		renderEnvironment(inverseViewProjection)
@@ -633,7 +639,7 @@ function render() {
 		//  renderTextureToScreen(lightmapFramebuffer.colorTextures[0]);
 
         if (probeRadianceFramebuffer) {
-			renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
+			// renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
 		}
 
 
@@ -758,21 +764,32 @@ function renderScene() {
 }
 
 
-function renderProbes(viewProjection) {
+function renderProbes(viewProjection, type) {
 
-	if (probeDrawCall) {
+    app.defaultDrawFramebuffer()
+        .defaultViewport()
+        .depthTest()
+        .depthFunc(PicoGL.LEQUAL)
+        .noBlend();
 
-		app.defaultDrawFramebuffer()
-		.defaultViewport()
-		.depthTest()
-		.depthFunc(PicoGL.LEQUAL)
-		.noBlend();
+    switch(type) {
+        case 'unlit':
+            if (probeDrawCall) {
+                probeDrawCall
+                    .uniform('u_projection_from_world', viewProjection)
+                    .draw();
+            }
+            break;
+        case 'sh':
+            if (probeVisualizeSHDrawCall && probeRadianceFramebuffer) {
+                probeVisualizeSHDrawCall
+                    .uniform('u_projection_from_world', viewProjection)
+                    .texture('u_probe_sh_texture', probeRadianceFramebuffer.colorTextures[0])
+                    .draw();
+            }
+            break;
+    }
 
-		probeDrawCall
-		.uniform('u_projection_from_world', viewProjection)
-		.draw();
-
-	}
 
 }
 
