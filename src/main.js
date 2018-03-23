@@ -357,23 +357,20 @@ function init() {
 	var loading_done = function(){
 		--num_loads;
 		if(num_loads == 0){
-			num_probes = relight_uvs.length;
-
-			// init probe rendering related stuff
-			// ...
-
-		}
+			// this must be done after both relight uvs and relight shs has loaded
+			setupProbeRadianceFramebuffer();
+ 		}
 	}
+
 	dat_loader.load("assets/precompute/relight_uvs.dat",
 	function(value) {
 		relight_uvs = value;
 		num_probes = relight_uvs.length;
         num_relight_rays = relight_uvs[0].length / 2;
-        setupProbeRadianceFramebuffer();
         relight_uvs_texture = makeTextureFromRelightUVs(relight_uvs);
 		loading_done();
 	});
-
+	
 	dat_loader.load("assets/precompute/relight_shs.dat",
 	function(value) {
 		relight_shs = value;
@@ -394,6 +391,7 @@ function init() {
             loading_done();
         });
 
+		/*
 	var matrix_loader = new MatrixLoader();
 
 	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
@@ -401,17 +399,18 @@ function init() {
 	}, Float32Array);
 
 	matrix_loader.load("assets/precompute/u.matrix", function(u_mat){
-		u_texture = makeTexture1024fromFloatArr(u_mat.data);
+		u_texture = makeTexture4096fromFloatArr(u_mat.data);
 	}, Float32Array);
 
 	matrix_loader.load("assets/precompute/receiver_px_map.imatrix", function(px_map_mat){
 		px_map_vao = createGIVAO(px_map_mat);
 	}, Int32Array);
 
+	*/
+
 	dat_loader.load("assets/precompute/probes.dat", function(value) {
 		probeLocations = value.reduce( (a,b) => a.concat(b) );
 	});
-
 }
 
 function createFullscreenVertexArray() {
@@ -823,7 +822,7 @@ function renderProbes(viewProjection, type) {
                     .uniform('u_projection_from_world', viewProjection)
                     .texture('u_relight_uvs_texture', relight_uvs_texture)
                     .texture('u_relight_dirs_texture', relight_dirs_texture)
-                    .texture('u_lightmap', lightMapFramebuffer.colorTextures[0])
+					.texture('u_lightmap', lightMapFramebuffer.colorTextures[0])
                     .draw();
             }
             break;
