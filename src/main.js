@@ -337,7 +337,7 @@ function init() {
         var probeVisualizeRawShader = makeShader('probeVisualizeRaw', data);
         setupProbeDrawCalls(probeVertexArray, unlitShader, probeVisualizeSHShader, probeVisualizeRawShader);
 
-		defaultShader = makeShader('default', data);
+		defaultShader = makeShader('default_lm', data);
 		shadowMapShader = makeShader('shadowMapping', data);
 		lightMapShader = makeShader('lightMapping', data);
 		
@@ -411,6 +411,7 @@ function init() {
 	dat_loader.load("assets/precompute/probes.dat", function(value) {
 		probeLocations = value.reduce( (a,b) => a.concat(b) );
 	});
+	
 }
 
 function createFullscreenVertexArray() {
@@ -650,21 +651,21 @@ function render() {
 		camera.update();
 
 		renderShadowMap();
-			renderLightmap();
+		renderLightmap();
 
         var lightmap = lightMapFramebuffer.colorTextures[0];
-        renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
+        //renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
 		renderScene();
 
-		var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
-		renderProbes(viewProjection, 'raw'); // 'unlit' | 'sh' | 'raw'
+		// var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
+		// renderProbes(viewProjection, 'raw'); // 'unlit' | 'sh' | 'raw'
 
-		var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
-		renderEnvironment(inverseViewProjection)
+		// var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
+		// renderEnvironment(inverseViewProjection)
 
 		// Call this to get a debug render of the passed in texture
-		// renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
+		//renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
 
         if (probeRadianceFramebuffer) {
 			// renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
@@ -746,8 +747,14 @@ function renderLightmap() {
 	.noDepthTest()
 	.noBlend()
 	.clearColor(0,0,0)
+	.drawBackfaces()
 	.clear();
-	
+
+	// lightMapFramebuffer.colorTextures[0].generateMipmaps();
+	// app.gl.generateMipmaps(lightMapFramebuffer.colorTextures)
+	// app.gl.generateMipmap(lightMapFramebuffer.colorTextures[0].binding);
+
+
 	for (var i = 0, len = meshes.length; i < len; ++i) {
 		var mesh = meshes[i];
 		mesh.lightmapDrawCall
