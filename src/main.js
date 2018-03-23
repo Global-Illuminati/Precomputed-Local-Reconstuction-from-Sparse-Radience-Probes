@@ -45,6 +45,7 @@ var meshes = [];
 
 var probeDrawCall;
 var probeVisualizeSHDrawCall;
+var probeVisualizeRawDrawCall;
 var probeLocations = [
 	-10, 4,  0,
 	+10, 4,  0,
@@ -59,6 +60,8 @@ var relight_uvs;
 var relight_uvs_texture;
 var relight_shs;
 var relight_shs_texture;
+var relight_dirs;
+var relight_dirs_texture;
 var sigma_v_texture;
 
 var u_texture;
@@ -147,6 +150,21 @@ function makeTextureFromRelightSHs(relight_shs) {
     options['type'] = PicoGL.FLOAT;
     var image_data = new Float32Array(relight_shs.reduce( (a,b) => a.concat(b)));
     return app.createTexture2D(image_data, num_sh_coefficients, num_relight_rays, options);
+}
+
+// For debugging purposes
+// num_relight_rays_per_probe * 1 (RGB32F where R,G,B = x,y,z coordinates of unit length direction vector)
+// ex. 100 * 1
+function makeTextureFromRelightDirs(relight_dirs) {
+    var options = {};
+    options['minFilter'] = PicoGL.NEAREST;
+    options['magFilter'] = PicoGL.NEAREST;
+    options['mipmaps'] = false;
+    options['format'] = PicoGL.RGB;
+    options['internalFormat'] = PicoGL.RGB32F;
+    options['type'] = PicoGL.FLOAT;
+    image_data = new Float32Array(relight_dirs.reduce( (a,b) => a.concat(b)));
+    return app.createTexture2D(image_data, num_relight_rays, 1, options);
 }
 
 function makeTextureFromMatrix1(matrix) {
@@ -300,6 +318,7 @@ function init() {
 
     shaderLoader.addShaderProgram('probeRadiance', 'probe_radiance.vert.glsl', 'probe_radiance.frag.glsl');
     shaderLoader.addShaderProgram('probeVisualizeSH', 'probe_visualize_sh.vert.glsl', 'probe_visualize_sh.frag.glsl');
+    shaderLoader.addShaderProgram('probeVisualizeRaw', 'probe_visualize_raw.vert.glsl', 'probe_visualize_raw.frag.glsl');
 
 	shaderLoader.load(function(data) {
 
@@ -315,7 +334,8 @@ function init() {
 		var probeVertexArray = createSphereVertexArray(0.20, 32, 32);
         var unlitShader = makeShader('unlit', data);
         var probeVisualizeSHShader = makeShader('probeVisualizeSH', data);
-        setupProbeDrawCalls(probeVertexArray, unlitShader, probeVisualizeSHShader);
+        var probeVisualizeRawShader = makeShader('probeVisualizeRaw', data);
+        setupProbeDrawCalls(probeVertexArray, unlitShader, probeVisualizeSHShader, probeVisualizeRawShader);
 
 		defaultShader = makeShader('default', data);
 		shadowMapShader = makeShader('shadowMapping', data);
@@ -332,7 +352,7 @@ function init() {
 	});
 
 	var dat_loader = new DatLoader();
-	var num_loads = 2;
+	var num_loads = 3;
 	
 	var loading_done = function(){
 		--num_loads;
@@ -365,6 +385,15 @@ function init() {
 
 		loading_done();
 	});
+
+    dat_loader.load("assets/precompute/relight_directions.dat",
+        function(value) {
+            relight_dirs = value;
+            num_relight_rays = relight_dirs.length;
+            relight_dirs_texture = makeTextureFromRelightDirs(relight_dirs);
+            loading_done();
+        });
+
 	var matrix_loader = new MatrixLoader();
 
 	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
@@ -493,7 +522,7 @@ function setupLightmapFramebuffer(size) {
 		format: PicoGL.DEPTH_COMPONENT
 	});
 
-	lightmapFramebuffer = app.createFramebuffer()
+	lightMapFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
 	.depthTarget(depthBuffer); 
 }
@@ -573,7 +602,7 @@ function createGIVAO(px_map) {
 	return vertexArray;
 }
 
-function setupProbeDrawCalls(vertexArray, unlitShader, probeVisualizeSHShader) {
+function setupProbeDrawCalls(vertexArray, unlitShader, probeVisualizeSHShader, probeVisualizeRawShader) {
 
 	// We need at least one (x,y,z) pair to render any probes
 	if (probeLocations.length <= 3) {
@@ -590,12 +619,12 @@ function setupProbeDrawCalls(vertexArray, unlitShader, probeVisualizeSHShader) {
 	// Set up for instanced drawing at the probe locations
 	var translations = app.createVertexBuffer(PicoGL.FLOAT, 3, new Float32Array(probeLocations))
 	vertexArray.instanceAttributeBuffer(10, translations);
-    console.log(probeLocations);
 
 	probeDrawCall = app.createDrawCall(unlitShader, vertexArray)
 	.uniform('u_color', vec3.fromValues(0, 1, 0));
 
 	probeVisualizeSHDrawCall = app.createDrawCall(probeVisualizeSHShader, vertexArray);
+	probeVisualizeRawDrawCall = app.createDrawCall(probeVisualizeRawShader, vertexArray);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -624,19 +653,19 @@ function render() {
 		renderShadowMap();
 			renderLightmap();
 
-        var lightmap = lightmapFramebuffer.colorTextures[0];
+        var lightmap = lightMapFramebuffer.colorTextures[0];
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
 		renderScene();
 
 		var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
-		renderProbes(viewProjection, 'sh');
+		renderProbes(viewProjection, 'raw'); // 'unlit' | 'sh' | 'raw'
 
 		var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
 		renderEnvironment(inverseViewProjection)
 
 		// Call this to get a debug render of the passed in texture
-		//  renderTextureToScreen(lightmapFramebuffer.colorTextures[0]);
+		//  renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
 
         if (probeRadianceFramebuffer) {
 			// renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
@@ -713,7 +742,7 @@ function renderLightmap() {
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
 
-	app.drawFramebuffer(lightmapFramebuffer)
+	app.drawFramebuffer(lightMapFramebuffer)
 	.viewport(0, 0, lightMapSize, lightMapSize)
 	.noDepthTest()
 	.noBlend()
@@ -739,7 +768,7 @@ function renderScene() {
 	var dirLightViewDirection = directionalLight.viewSpaceDirection(camera);
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
-	var lightMap = lightmapFramebuffer.colorTextures[0];
+	var lightMap = lightMapFramebuffer.colorTextures[0];
 
 	app.defaultDrawFramebuffer()
 	.defaultViewport()
@@ -785,6 +814,16 @@ function renderProbes(viewProjection, type) {
                 probeVisualizeSHDrawCall
                     .uniform('u_projection_from_world', viewProjection)
                     .texture('u_probe_sh_texture', probeRadianceFramebuffer.colorTextures[0])
+                    .draw();
+            }
+            break;
+        case 'raw':
+            if (probeVisualizeRawDrawCall && lightMapFramebuffer && relight_dirs_texture && relight_uvs_texture) {
+                probeVisualizeRawDrawCall
+                    .uniform('u_projection_from_world', viewProjection)
+                    .texture('u_relight_uvs_texture', relight_uvs_texture)
+                    .texture('u_relight_dirs_texture', relight_dirs_texture)
+                    .texture('u_lightmap', lightMapFramebuffer.colorTextures[0])
                     .draw();
             }
             break;
