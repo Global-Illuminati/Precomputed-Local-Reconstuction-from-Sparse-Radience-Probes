@@ -68,7 +68,7 @@ vec3 permute(vec3 v, ivec3 permutation) {
 InternalRay make_internal_ray(Ray ray) {
 	ivec3 permutation;
 	// permute so that z is the largest dimension
-	permutation.z() = max_dimension(ray.dir);
+	permutation.z() = max_dimension(ray.dir.cwiseAbs2());
 	permutation.x() = permutation.z() + 1; if (permutation.x() == 3) permutation.x() = 0;
 	permutation.y() = permutation.x() + 1; if (permutation.y() == 3) permutation.y() = 0;
 	
@@ -234,7 +234,7 @@ bool lightmap_uv_of_closest_intersection(Ray ray, Atlas_Output_Mesh *light_map_m
 
 		HitInfo hit_info;
 		if (intersect(i_ray, t, &hit_info)) {
-			i_ray.t_max = max(i_ray.t_max, hit_info.t);
+			i_ray.t_max = min(i_ray.t_max, hit_info.t);
 			closest_tri = face_idx;
 			closest_hit_info = hit_info;
 		}
