@@ -312,7 +312,7 @@ function init() {
 	shaderLoader.addShaderProgram('environment', 'environment.vert.glsl', 'environment.frag.glsl');
 	shaderLoader.addShaderProgram('textureBlit', 'screen_space.vert.glsl', 'texture_blit.frag.glsl');
 	shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
-	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
+	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'default.frag.glsl');
 	shaderLoader.addShaderProgram('calc_gi', 'calc_gi.vert.glsl', 'calc_gi.frag.glsl');
 	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
 
@@ -665,7 +665,7 @@ function render() {
 		renderEnvironment(inverseViewProjection)
 
 		// Call this to get a debug render of the passed in texture
-		//  renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
+		// renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
 
         if (probeRadianceFramebuffer) {
 			// renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
