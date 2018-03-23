@@ -134,7 +134,7 @@ function makeTextureFromRelightUVs(relight_uvs) {
     options['format'] = PicoGL.RG;
     options['internalFormat'] = PicoGL.RG32F;
     options['type'] = PicoGL.FLOAT;
-    image_data = new Float32Array(relight_uvs.reduce( (a,b) => a.concat(b)).map( x => x==-1?0:x/lightMapSize));
+    image_data = new Float32Array(relight_uvs.reduce( (a,b) => a.concat(b)).map( x => x==-1?-1:x/lightMapSize));
     return app.createTexture2D(image_data, num_relight_rays, num_probes, options);
 }
 

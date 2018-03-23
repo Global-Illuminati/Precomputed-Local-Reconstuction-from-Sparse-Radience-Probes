@@ -27,6 +27,10 @@ void main()
         vec2 relight_ray_uv = texelFetch(u_relight_uvs_texture, ivec2(ray_index, probe_index), 0).rg;
         vec4 lookedup_light = texture(u_lightmap, relight_ray_uv);
 
+        if (relight_ray_uv.x == -1.0) {
+            lookedup_light = vec4(1.0, 0.0, 1.0, 1.0); // Make missed rays magenta-colored
+        }
+
         summed_light += sh_coeff_for_ray * lookedup_light;
     }
     vec4 resulting_sh_coeff = summed_light * 4.0*PI / float(num_rays);
