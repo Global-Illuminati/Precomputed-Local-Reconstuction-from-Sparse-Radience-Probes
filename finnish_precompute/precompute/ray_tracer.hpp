@@ -79,9 +79,9 @@ InternalRay make_internal_ray(Ray ray) {
 	
 	// shear so that ray.dir -> (0,0,1)
 	vec3d shear(
-		-ray.dir.x() / ray.dir.z(),
-		-ray.dir.y() / ray.dir.z(),
-		1.0f / ray.dir.z());
+		-dir.x() / dir.z(),
+		-dir.y() / dir.z(),
+		1.0f / dir.z());
 	
 	return {ray.origin.cast<double>(), shear, permutation, FLT_MAX };
 }
