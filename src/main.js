@@ -7,7 +7,8 @@ var gui;
 
 var settings = {
 	target_fps: 60,
-	environment_brightness: 1.5
+	environment_brightness: 1.5,
+    num_sh_coeffs_to_render: 16
 };
 
 var sceneSettings = {
@@ -283,6 +284,7 @@ function init() {
 	gui = new dat.GUI();
 	gui.add(settings, 'target_fps', 0, 120);
 	gui.add(settings, 'environment_brightness', 0.0, 2.0);
+    gui.add(settings, 'num_sh_coeffs_to_render', 0, 16);
 
 	//////////////////////////////////////
 	// Basic GL state
@@ -371,7 +373,7 @@ function init() {
  		}
 	}
 
-    var suffix = "_800"; //"";
+    var suffix = "_100"; //"";
     var relight_uvs_dir = "assets/precompute/relight_uvs" + suffix + ".dat";
     var relight_shs_dir = "assets/precompute/relight_shs" + suffix + ".dat";
     var relight_directions_dir = "assets/precompute/relight_directions" + suffix + ".dat";
@@ -959,6 +961,7 @@ function renderProbes(viewProjection, type) {
             if (probeVisualizeSHDrawCall && probeRadianceFramebuffer) {
                 probeVisualizeSHDrawCall
                     .uniform('u_projection_from_world', viewProjection)
+                    .uniform('u_num_sh_coeffs_to_render', settings['num_sh_coeffs_to_render'])
                     .texture('u_probe_sh_texture', probeRadianceFramebuffer.colorTextures[0])
                     .draw();
             }
