@@ -52,6 +52,8 @@ var probeLocations = [
 	-10, 14, 0,
 	+10, 14, 0
 ]
+var probeVisualizeMode = 'raw';
+var probeVisualizeUnlit = true;
 
 var num_probes;
 var num_relight_rays;
@@ -418,6 +420,34 @@ function init() {
 		px_map_vao = createGIVAO(px_map_mat);
 		if(calcGIShader) GIDrawCall = app.createDrawCall(calcGIShader,px_map_vao,PicoGL.POINTS);
 	}, Int32Array);
+
+    initProbeToggleControls();
+}
+
+function initProbeToggleControls() {
+    window.addEventListener('keydown', function(e) {
+        if (e.keyCode === 80) { /* p */
+            if (probeVisualizeUnlit) {
+                probeVisualizeUnlit = false;
+            } else {
+                if (probeVisualizeMode === 'sh')
+                    probeVisualizeMode = 'raw';
+                else if (probeVisualizeMode === 'raw')
+                    probeVisualizeMode = 'sh';
+            }
+        }
+        if (e.keyCode === 85) { /* u */
+            probeVisualizeUnlit = true;
+        }
+    });
+}
+
+function getProbeVisualizeModeString() {
+    if (probeVisualizeUnlit) {
+        return 'unlit';
+    } else {
+        return probeVisualizeMode;
+    }
 }
 
 function createFullscreenVertexArray() {
@@ -720,7 +750,7 @@ function render() {
 		renderScene();
 
 		 var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
-		 renderProbes(viewProjection, 'sh'); // 'unlit' | 'sh' | 'raw'
+		 renderProbes(viewProjection, getProbeVisualizeModeString()); // 'unlit' | 'sh' | 'raw'
 
 		 var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
 		 renderEnvironment(inverseViewProjection)
