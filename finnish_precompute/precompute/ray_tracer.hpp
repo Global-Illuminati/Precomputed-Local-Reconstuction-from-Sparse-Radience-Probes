@@ -67,6 +67,7 @@ vec3d permute(vec3d v, ivec3 permutation) {
 	return vec3d(v[permutation.x()], v[permutation.y()], v[permutation.z()]);
 }
 
+#pragma optimize("", on)
 
 InternalRay make_internal_ray(Ray ray) {
 	ivec3 permutation;
@@ -83,6 +84,9 @@ InternalRay make_internal_ray(Ray ray) {
 		-dir.y() / dir.z(),
 		1.0f / dir.z());
 	
+	//dir.x() += shear.x() * dir.z()   == 0;
+	//dir.y() += shear.y() * dir.z()   == 0;
+	//dir.z() *= shear.z()             == 1;
 	return {ray.origin.cast<double>(), shear, permutation, FLT_MAX };
 }
 struct HitInfo {
@@ -99,9 +103,9 @@ bool intersect(InternalRay &ray, const Triangle &t, HitInfo *hit_info) {
 	vec3d c = t.c.cast<double>() - ray.origin;
 
 	//permute the triangle in accordence with the ray. 
-	permute(a, ray.permutation);
-	permute(b, ray.permutation);
-	permute(c, ray.permutation);
+	a = permute(a, ray.permutation);
+	b = permute(b, ray.permutation);
+	c = permute(c, ray.permutation);
 
 	a.x() += ray.shear.x() * a.z();
 	a.y() += ray.shear.y() * a.z();
@@ -141,6 +145,7 @@ bool intersect(InternalRay &ray, const Triangle &t, HitInfo *hit_info) {
 	// done before div with det cause fp div is slow.
 	if (det < 0 && (t_scaled >= 0 || t_scaled < ray.t_max*det)) return false;
 	else if (det > 0 && (t_scaled <= 0 || t_scaled > ray.t_max*det)) return false;
+
 
 	// finally compute barycentric coords
 	double inv_det = 1.0f / det;
@@ -214,3 +219,4 @@ bool lightmap_uv_of_closest_intersection(Ray ray, Atlas_Output_Mesh *light_map_m
 
 
 
+#pragma optimize("", on)
