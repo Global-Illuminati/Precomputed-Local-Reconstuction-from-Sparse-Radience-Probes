@@ -67,6 +67,10 @@ var sigma_v_texture;
 var u_texture;
 var px_map_vao;
 
+var calcGIShader;
+var transformPCProbesDrawCall;
+var GIDrawCall;
+
 window.addEventListener('DOMContentLoaded', function () {
 
 	init();
@@ -169,8 +173,8 @@ function makeTextureFromRelightDirs(relight_dirs) {
 
 function makeTextureFromMatrix1(matrix) {
 	var options = {};
-	options['minFilter'] = PicoGL.LINEAR;
-	options['magFilter'] = PicoGL.LINEAR;
+	options['minFilter'] = PicoGL.NEAREST;
+	options['magFilter'] = PicoGL.NEAREST;
 	options['mipmaps'] = false;
 	options['format'] = PicoGL.RED;
 	options['internalFormat'] = PicoGL.R32F;
@@ -180,8 +184,8 @@ function makeTextureFromMatrix1(matrix) {
 
 function makeTexture4096fromFloatArr(data) {
 	var options = {};
-	options['minFilter'] = PicoGL.LINEAR;
-	options['magFilter'] = PicoGL.LINEAR;
+	options['minFilter'] = PicoGL.NEAREST;
+	options['magFilter'] = PicoGL.NEAREST;
 	options['mipmaps'] = false;
 	options['format'] = PicoGL.RGBA;
 	options['internalFormat'] = PicoGL.RGBA32F;
@@ -298,7 +302,7 @@ function init() {
 	directionalLight = new DirectionalLight();
 	setupDirectionalLightShadowMapFramebuffer(shadowMapSize);
 	setupLightmapFramebuffer(lightMapSize);
-
+	setupGILightmapFramebuffer(lightMapSize);
 
 	setupSceneUniforms();
 
@@ -341,8 +345,11 @@ function init() {
 		shadowMapShader = makeShader('shadowMapping', data);
 		lightMapShader = makeShader('lightMapping', data);
 		
-		var calcGIShader = makeShader('calc_gi', data);
 		var transformPCProbesShader = makeShader('transform_pc_probes', data);
+		calcGIShader = makeShader('calc_gi', data);
+		if(px_map_vao) GIDrawCall =app.createDrawCall(calcGIShader, px_map_vao, PicoGL.POINTS);
+		
+		transformPCProbesDrawCall = app.createDrawCall(transformPCProbesShader,fullscreenVertexArray);
 
         var probeRadianceShader = makeShader('probeRadiance', data);
         probeRadianceDrawCall = app.createDrawCall(probeRadianceShader, fullscreenVertexArray);
@@ -391,11 +398,16 @@ function init() {
             loading_done();
         });
 
-		/*
 	var matrix_loader = new MatrixLoader();
+
+
+	dat_loader.load("assets/precompute/probes.dat", function(value) {
+		probeLocations = value.reduce( (a,b) => a.concat(b) );
+	});
 
 	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
 		sigma_v_texture = makeTextureFromMatrix1(sigma_v);
+		setupTransformPCFramebuffer(16,16); // num pc components * num shs 
 	}, Float32Array);
 
 	matrix_loader.load("assets/precompute/u.matrix", function(u_mat){
@@ -404,14 +416,8 @@ function init() {
 
 	matrix_loader.load("assets/precompute/receiver_px_map.imatrix", function(px_map_mat){
 		px_map_vao = createGIVAO(px_map_mat);
+		if(calcGIShader) GIDrawCall = app.createDrawCall(calcGIShader,px_map_vao,PicoGL.POINTS);
 	}, Int32Array);
-
-	*/
-
-	dat_loader.load("assets/precompute/probes.dat", function(value) {
-		probeLocations = value.reduce( (a,b) => a.concat(b) );
-	});
-	
 }
 
 function createFullscreenVertexArray() {
@@ -504,6 +510,55 @@ function setupDirectionalLightShadowMapFramebuffer(size) {
 
 }
 
+var transformPCFramebuffer;
+function setupTransformPCFramebuffer(width, height)
+{
+
+	var colorBuffer = app.createTexture2D(width, height, {
+		internalFormat: PicoGL.RGBA32F,
+		minFilter: PicoGL.NEAREST,
+		magFilter: PicoGL.NEAREST,
+	});
+
+	var depthBuffer = app.createTexture2D(width, height, {
+		format: PicoGL.DEPTH_COMPONENT
+	});
+
+	transformPCFramebuffer = app.createFramebuffer()
+	.colorTarget(0, colorBuffer)
+	.depthTarget(depthBuffer); 
+	
+	
+}
+
+
+var GIlightMapFramebuffer = false;
+
+function setupGILightmapFramebuffer(size) {
+
+	var colorBuffer = app.createTexture2D(size, size, {
+		internalFormat: PicoGL.RGBA8,
+		minFilter: PicoGL.LINEAR,
+		magFilter: PicoGL.LINEAR,
+		//wrapS:gl.CLAMP_TO_BORDER,
+		//wrapT:gl.CLAMP_TO_BORDER,
+	});
+	// do we need to set border color -> 0? probs defult.
+	// pico gl won't let us? :(
+
+	// we don't need no depth texture.. are we allowed not to have one somehow?
+	// not adding it causes it to be undefined...
+	var depthBuffer = app.createTexture2D(size, size, {
+		format: PicoGL.DEPTH_COMPONENT
+	});
+
+	gilightMapFramebuffer = app.createFramebuffer()
+	.colorTarget(0, colorBuffer)
+	.depthTarget(depthBuffer); 
+}
+
+
+
 function setupLightmapFramebuffer(size) {
 
 	var colorBuffer = app.createTexture2D(size, size, {
@@ -526,6 +581,8 @@ function setupLightmapFramebuffer(size) {
 	.colorTarget(0, colorBuffer)
 	.depthTarget(depthBuffer); 
 }
+
+
 
 function setupProbeRadianceFramebuffer() {
 
@@ -596,9 +653,9 @@ function createVertexArrayFromMeshInfo(meshInfo) {
 
 
 function createGIVAO(px_map) {
-	var buf_px_map  = app.createVertexBuffer(PicoGL.UNSIGNED_INT, 2, px_map.data);
+	var buf_px_map  = app.createVertexBuffer(PicoGL.INT, 2, px_map.data);
 	var vertexArray = app.createVertexArray()
-	.vertexAttributeBuffer(0, buf_px_map);
+	.vertexIntegerAttributeBuffer(0, buf_px_map);
 	return vertexArray;
 }
 
@@ -652,26 +709,42 @@ function render() {
 
 		renderShadowMap();
 		renderLightmap();
+		
 
         var lightmap = lightMapFramebuffer.colorTextures[0];
-        //renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
+        renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
+
+		render_probe_pc_transfrom();
+		render_gi();
 
 		renderScene();
 
-		// var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
-		// renderProbes(viewProjection, 'raw'); // 'unlit' | 'sh' | 'raw'
+		 var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
+		 renderProbes(viewProjection, 'sh'); // 'unlit' | 'sh' | 'raw'
 
-		// var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
-		// renderEnvironment(inverseViewProjection)
+		 var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
+		 renderEnvironment(inverseViewProjection)
+
+		
 
 		// Call this to get a debug render of the passed in texture
-		//renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
-
+		// renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
+		
         if (probeRadianceFramebuffer) {
-			// renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
+			 //renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
 		}
-
-
+		if(transformPCFramebuffer)
+		{
+			//renderTextureToScreen(transformPCFramebuffer.colorTextures[0]);
+		}
+		if(gilightMapFramebuffer)
+		{
+			 //renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
+		}
+		if(u_texture)
+		{
+			// renderTextureToScreen(u_texture);
+		}
 
 	}
 	picoTimer.end();
@@ -750,11 +823,6 @@ function renderLightmap() {
 	.drawBackfaces()
 	.clear();
 
-	// lightMapFramebuffer.colorTextures[0].generateMipmaps();
-	// app.gl.generateMipmaps(lightMapFramebuffer.colorTextures)
-	// app.gl.generateMipmap(lightMapFramebuffer.colorTextures[0].binding);
-
-
 	for (var i = 0, len = meshes.length; i < len; ++i) {
 		var mesh = meshes[i];
 		mesh.lightmapDrawCall
@@ -766,7 +834,43 @@ function renderLightmap() {
 		.texture('u_shadow_map', shadowMap)
 		.draw();
 	}
+}
 
+function render_probe_pc_transfrom()
+{
+	if(sigma_v_texture && transformPCFramebuffer && probeRadianceFramebuffer && transformPCProbesDrawCall)
+	{
+		app.drawFramebuffer(transformPCFramebuffer)
+		.viewport(0, 0, 16, 16)
+		.noDepthTest()
+		.noBlend()
+		.clearColor(0,0,0)
+		.clear();
+
+		transformPCProbesDrawCall
+		.texture('sigma_vt', sigma_v_texture)
+		.texture('sh_coeffs', probeRadianceFramebuffer.colorTextures[0])
+		.draw();
+	}
+	
+}
+
+function render_gi()
+{
+	if(transformPCFramebuffer && u_texture && gilightMapFramebuffer)
+	{
+		app.drawFramebuffer(gilightMapFramebuffer)
+		.viewport(0, 0, lightMapSize, lightMapSize)
+		.noDepthTest()
+		.noBlend()
+		.clearColor(0,0,0)
+		.clear();
+		
+		GIDrawCall
+		.texture('pc_sh_coeffs',transformPCFramebuffer.colorTextures[0])
+		.texture('rec_sh_coeffs', u_texture).draw();
+	}
+	
 }
 
 function renderScene() {
@@ -775,7 +879,7 @@ function renderScene() {
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
 	var lightMap = lightMapFramebuffer.colorTextures[0];
-
+	if(gilightMapFramebuffer) lightMap = gilightMapFramebuffer.colorTextures[0];
 	app.defaultDrawFramebuffer()
 	.defaultViewport()
 	.depthTest()

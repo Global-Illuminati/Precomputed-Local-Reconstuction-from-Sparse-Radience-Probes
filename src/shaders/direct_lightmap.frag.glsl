@@ -74,5 +74,5 @@ void main()
 		color += visibility * lambertian * u_dir_light_color;
 	}
 
-	o_color = vec4(color,1);
+	o_color = vec4(diffuse,1.0);
 }

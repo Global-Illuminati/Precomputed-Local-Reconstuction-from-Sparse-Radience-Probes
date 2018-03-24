@@ -20,6 +20,7 @@ uniform sampler2D u_diffuse_map;
 uniform sampler2D u_specular_map;
 uniform sampler2D u_normal_map;
 uniform sampler2D u_shadow_map;
+uniform sampler2D u_light_map;
 
 uniform vec3 u_dir_light_color;
 uniform vec3 u_dir_light_view_direction;
