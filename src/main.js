@@ -7,7 +7,8 @@ var gui;
 
 var settings = {
 	target_fps: 60,
-	environment_brightness: 1.5
+	environment_brightness: 1.5,
+    num_sh_coeffs_to_render: 16
 };
 
 var sceneSettings = {
@@ -283,6 +284,7 @@ function init() {
 	gui = new dat.GUI();
 	gui.add(settings, 'target_fps', 0, 120);
 	gui.add(settings, 'environment_brightness', 0.0, 2.0);
+    gui.add(settings, 'num_sh_coeffs_to_render', 0, 16);
 
 	//////////////////////////////////////
 	// Basic GL state
@@ -371,7 +373,13 @@ function init() {
  		}
 	}
 
-	dat_loader.load("assets/precompute/relight_uvs.dat",
+    var suffix = "_100"; //"";
+    var relight_uvs_dir = "assets/precompute/relight_uvs" + suffix + ".dat";
+    var relight_shs_dir = "assets/precompute/relight_shs" + suffix + ".dat";
+    var relight_directions_dir = "assets/precompute/relight_directions" + suffix + ".dat";
+
+
+    dat_loader.load(relight_uvs_dir,
 	function(value) {
 		relight_uvs = value;
 		num_probes = relight_uvs.length;
@@ -379,8 +387,8 @@ function init() {
         relight_uvs_texture = makeTextureFromRelightUVs(relight_uvs);
 		loading_done();
 	});
-	
-	dat_loader.load("assets/precompute/relight_shs.dat",
+
+	dat_loader.load(relight_shs_dir,
 	function(value) {
 		relight_shs = value;
         num_sh_coefficients = relight_shs[0].length;
@@ -392,7 +400,7 @@ function init() {
 		loading_done();
 	});
 
-    dat_loader.load("assets/precompute/relight_directions.dat",
+    dat_loader.load(relight_directions_dir,
         function(value) {
             relight_dirs = value;
             num_relight_rays = relight_dirs.length;
@@ -762,7 +770,7 @@ function render() {
 		// renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
 		
         if (probeRadianceFramebuffer) {
-			 //renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
+			 // renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
 		}
 		if(transformPCFramebuffer)
 		{
@@ -954,6 +962,7 @@ function renderProbes(viewProjection, type) {
             if (probeVisualizeSHDrawCall && probeRadianceFramebuffer) {
                 probeVisualizeSHDrawCall
                     .uniform('u_projection_from_world', viewProjection)
+                    .uniform('u_num_sh_coeffs_to_render', settings['num_sh_coeffs_to_render'])
                     .texture('u_probe_sh_texture', probeRadianceFramebuffer.colorTextures[0])
 					.draw();
 				console.log('drawing sh');
