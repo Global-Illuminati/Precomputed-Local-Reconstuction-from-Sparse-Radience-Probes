@@ -19,7 +19,7 @@ void main()
 
     int i = v_probe_index;
 
-    float c = 30.0; // Added this multiplication factor to make the differences visible, they all look the same otherwise...
+    float c = 1.0; // Added this multiplication factor to make the differences visible, they all look the same otherwise...
 
     // Maybe something is wrong with the SH expressions below?
 
@@ -44,5 +44,7 @@ void main()
     + c*texelFetch(u_probe_sh_texture, ivec2(13, i), 0) * -0.457052559* x*(-1.0 + 5.0 * z*z)
     + c*texelFetch(u_probe_sh_texture, ivec2(14, i), 0) * 1.44532704	 * (x*x - y * y)*z
     + c*texelFetch(u_probe_sh_texture, ivec2(15, i), 0) * -0.590052307*x*(x*x - 3.0 * y*y);
+
+    o_color = vec4(o_color.rgb, 1.0);
 
 }

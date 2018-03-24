@@ -371,7 +371,7 @@ function init() {
  		}
 	}
 
-    var suffix = "_8000"; //"";
+    var suffix = "_800"; //"";
     var relight_uvs_dir = "assets/precompute/relight_uvs" + suffix + ".dat";
     var relight_shs_dir = "assets/precompute/relight_shs" + suffix + ".dat";
     var relight_directions_dir = "assets/precompute/relight_directions" + suffix + ".dat";
@@ -767,7 +767,7 @@ function render() {
 		// renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
 		
         if (probeRadianceFramebuffer) {
-			 //renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
+			 // renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
 		}
 		if(transformPCFramebuffer)
 		{
