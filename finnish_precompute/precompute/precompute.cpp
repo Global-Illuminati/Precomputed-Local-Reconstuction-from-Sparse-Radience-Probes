@@ -432,8 +432,11 @@ int main(int argc, char * argv[]) {
 	std::vector<ProbeData> probe_data(probes.size());
 	{
 		std::vector<vec3> relight_ray_directions;
-		generate_relight_ray_directions(relight_ray_directions, RELIGHT_RAYS_PER_PROBE);
+		printf("\nGenerating relight ray directions...\n");
+		generate_relight_ray_directions_spaced(relight_ray_directions, RELIGHT_RAYS_PER_PROBE);
 		write_probe_data(relight_ray_directions, "../relight_directions.dat");
+		
+		printf("\nPrecomputing relight uvs...\n");
 		precompute_lightmap_uvs(probe_data, probes, relight_ray_directions, output_mesh, m);
 		for (int i = 0; i < probes.size(); i++) {
 			for (int j = 0; j < RELIGHT_RAYS_PER_PROBE; j++) {

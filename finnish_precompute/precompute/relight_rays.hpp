@@ -1,5 +1,5 @@
 
-#define RELIGHT_RAYS_PER_PROBE 100 //8000
+#define RELIGHT_RAYS_PER_PROBE 100//100 //8000
 
 #define PI 3.1415926535898
 
@@ -13,10 +13,7 @@ typedef Eigen::Vector3i ivec3;
 #include <random>
 #include<cmath>
 
-
-
-void generate_relight_ray_directions(std::vector<vec3> &relight_ray_directions, int num_relight_rays) {
-	std::default_random_engine generator;
+void generate_relight_ray_directions_random(std::vector<vec3> &relight_ray_directions, int num_relight_rays, std::default_random_engine &generator) {
 	std::uniform_real_distribution<float> uniform01(0.0, 1.0);
 	for (int i = 0; i < num_relight_rays; i++) {
 		float theta = 2 * PI * uniform01(generator);
@@ -27,6 +24,42 @@ void generate_relight_ray_directions(std::vector<vec3> &relight_ray_directions, 
 		relight_ray_directions.push_back(vec3(x, y, z));
 	}
 }
+
+float get_sq_distance_to_closest_ray(vec3 candidate, std::vector<vec3> existing_rays) {
+	float min_sq_dist = 4.0f;
+	for (int i = 0; i < existing_rays.size(); i++) {
+		float sq_dist = (candidate - existing_rays[i]).squaredNorm();
+		if (sq_dist < min_sq_dist) {
+			min_sq_dist = sq_dist;
+		}
+	}
+	return min_sq_dist;
+}
+
+vec3 get_best_candidate(std::vector<vec3> candidates, std::vector<vec3> existing_rays) {
+	vec3 best_candidate;
+	float best_dist = 0.0f;
+	for (vec3 candidate : candidates) {
+		float dist = get_sq_distance_to_closest_ray(candidate, existing_rays);
+		if (dist > best_dist) {
+			best_dist = dist;
+			best_candidate = candidate;
+		}
+	}
+	return best_candidate;
+}
+
+void generate_relight_ray_directions_spaced(std::vector<vec3> &relight_ray_directions, int num_relight_rays) {
+	std::default_random_engine generator;
+	int num_candidates = 1000;
+	for (int i = 0; i < num_relight_rays; i++) {
+		std::vector<vec3> candidates;
+		generate_relight_ray_directions_random(candidates, num_candidates, generator);
+		vec3 best_candidate = get_best_candidate(candidates, relight_ray_directions);
+		relight_ray_directions.push_back(best_candidate);
+	}
+}
+
 
 struct ProbeData {
 	vec2 relight_rays_uv[RELIGHT_RAYS_PER_PROBE];

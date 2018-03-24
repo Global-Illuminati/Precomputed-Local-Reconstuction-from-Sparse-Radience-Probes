@@ -22,7 +22,7 @@ from mathutils import Vector
 
 def load_probes(filename):
     with open(filename) as f:
-        return [Vector(map(float, line.split())) for line in f.readlines() if len(line) > 0]
+        return [Vector(map(float, line.split())) for line in f.readlines()[1:] if len(line) > 0]
 
 def get_probe_material():
     material = bpy.data.materials.get("ProbeMaterial")
