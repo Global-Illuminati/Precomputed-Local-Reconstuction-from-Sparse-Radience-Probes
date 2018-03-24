@@ -9,7 +9,6 @@ void main()
 {
 	int num_pc_probes = 16;
 	
-	vec2 px = gl_FragCoord.xy;
 	vec3 ret = vec3(0);
 	for(int i = 0; i< num_pc_probes;i++){
 		for(int j=0;j<4;j++){  // 4 = num_sh_probes / 4 = 16 / 4

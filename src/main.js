@@ -318,7 +318,7 @@ function init() {
 	shaderLoader.addShaderProgram('environment', 'environment.vert.glsl', 'environment.frag.glsl');
 	shaderLoader.addShaderProgram('textureBlit', 'screen_space.vert.glsl', 'texture_blit.frag.glsl');
 	shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
-	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'default.frag.glsl');
+	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
 	shaderLoader.addShaderProgram('calc_gi', 'calc_gi.vert.glsl', 'calc_gi.frag.glsl');
 	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
 
@@ -409,6 +409,7 @@ function init() {
 
 	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
 		sigma_v_texture = makeTextureFromMatrix1(sigma_v);
+		// console.log(sigma_v.width,sigma_v.height);
 		setupTransformPCFramebuffer(16,16); // num pc components * num shs 
 	}, Float32Array);
 
@@ -744,8 +745,8 @@ function render() {
         var lightmap = lightMapFramebuffer.colorTextures[0];
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
-		render_probe_pc_transfrom();
-		render_gi();
+		// render_probe_pc_transfrom();
+		// render_gi();
 
 		renderScene();
 
@@ -769,7 +770,7 @@ function render() {
 		}
 		if(gilightMapFramebuffer)
 		{
-			 //renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
+			// renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
 		}
 		if(u_texture)
 		{
@@ -908,7 +909,7 @@ function renderScene() {
 	var dirLightViewDirection = directionalLight.viewSpaceDirection(camera);
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
-	var lightMap = lightMapFramebuffer.colorTextures[0];
+	//var lightMap = lightMapFramebuffer.colorTextures[0];
 	if(gilightMapFramebuffer) lightMap = gilightMapFramebuffer.colorTextures[0];
 	app.defaultDrawFramebuffer()
 	.defaultViewport()
@@ -954,7 +955,8 @@ function renderProbes(viewProjection, type) {
                 probeVisualizeSHDrawCall
                     .uniform('u_projection_from_world', viewProjection)
                     .texture('u_probe_sh_texture', probeRadianceFramebuffer.colorTextures[0])
-                    .draw();
+					.draw();
+				console.log('drawing sh');
             }
             break;
         case 'raw':

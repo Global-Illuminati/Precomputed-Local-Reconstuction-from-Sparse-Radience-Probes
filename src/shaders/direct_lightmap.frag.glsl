@@ -71,8 +71,8 @@ void main()
 		vec3 wh = normalize(wi + wo);
 
 		// diffuse
-		color += visibility * lambertian * u_dir_light_color;
+		color += diffuse*visibility * lambertian * u_dir_light_color;
 	}
 
-	o_color = vec4(diffuse,1.0);
+	o_color = vec4(color,1.0);
 }

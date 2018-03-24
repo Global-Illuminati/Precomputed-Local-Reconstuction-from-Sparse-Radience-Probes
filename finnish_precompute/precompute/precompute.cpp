@@ -413,6 +413,7 @@ int main(int argc, char * argv[]) {
 
 	std::vector<vec3>probes;
 	{//voxelize and generate probes
+#if 1
 		voxelize_scene(m, &data);
 		std::vector<ivec3>probe_voxels;
 		flood_fill_voxel_scene(&data, probe_voxels);
@@ -423,17 +424,17 @@ int main(int argc, char * argv[]) {
 		reduce_probes(probes, &data, RHO_PROBES / 4);
 		reduce_probes(probes, &data, RHO_PROBES / 2);
 		reduce_probes(probes, &data, RHO_PROBES);
-		
-		write_probe_data(probes, "../probes.dat");
-		printf("Probes saved to ../probes.dat");
-		
+#endif	
+
+		write_probe_data(probes, "../../assets/precompute/probes.dat");
+		printf("Probes saved to ../../assets/precompute/probes.dat");
 	}
 
 	std::vector<ProbeData> probe_data(probes.size());
 	{
 		std::vector<vec3> relight_ray_directions;
 		generate_relight_ray_directions(relight_ray_directions, RELIGHT_RAYS_PER_PROBE);
-		write_probe_data(relight_ray_directions, "../relight_directions.dat");
+		write_probe_data(relight_ray_directions, "../../assets/precompute/relight_directions.dat");
 		precompute_lightmap_uvs(probe_data, probes, relight_ray_directions, output_mesh, m);
 		for (int i = 0; i < probes.size(); i++) {
 			for (int j = 0; j < RELIGHT_RAYS_PER_PROBE; j++) {
@@ -442,8 +443,8 @@ int main(int argc, char * argv[]) {
 			}
 		}
 
-		write_relight_uvs(probe_data, "../relight_uvs.dat");
-		write_relight_shs(relight_ray_directions, "../relight_shs.dat");
+		write_relight_uvs(probe_data, "../../assets/precompute/relight_uvs.dat");
+		write_relight_shs(relight_ray_directions, "../../assets/precompute/relight_shs.dat");
 	}
 
 
@@ -452,7 +453,7 @@ int main(int argc, char * argv[]) {
 
 	{ // generate receivers
 		compute_receiver_locations(output_mesh, m, receivers);
-		FILE *f = fopen("../receiver_px_map.imatrix", "wb");
+		FILE *f = fopen("../../assets/precompute/receiver_px_map.imatrix", "wb");
 		int num_recs = receivers.size();
 		int num_comps = 2;
 
