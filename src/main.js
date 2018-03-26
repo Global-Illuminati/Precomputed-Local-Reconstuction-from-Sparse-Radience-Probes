@@ -8,7 +8,8 @@ var gui;
 var settings = {
 	target_fps: 60,
 	environment_brightness: 1.5,
-    num_sh_coeffs_to_render: 16
+    num_sh_coeffs_to_render: 16,
+	rotate_light: true
 };
 
 var sceneSettings = {
@@ -285,6 +286,7 @@ function init() {
 	gui.add(settings, 'target_fps', 0, 120);
 	gui.add(settings, 'environment_brightness', 0.0, 2.0);
     gui.add(settings, 'num_sh_coeffs_to_render', 0, 16);
+    gui.add(settings, 'rotate_light');
 
 	//////////////////////////////////////
 	// Basic GL state
@@ -744,7 +746,14 @@ function render() {
 	stats.begin();
 	picoTimer.start();
 	{
-		camera.update();
+
+		if (settings["rotate_light"]) {
+            // Rotate light
+            vec3.rotateY(directionalLight.direction, directionalLight.direction, vec3.fromValues(0.0,0.0,0.0), 0.01);
+        }
+
+
+        camera.update();
 
 		renderShadowMap();
 		renderLightmap();
