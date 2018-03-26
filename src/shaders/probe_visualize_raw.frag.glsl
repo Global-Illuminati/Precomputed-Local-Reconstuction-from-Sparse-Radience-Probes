@@ -30,12 +30,12 @@ void main()
     vec3 dir = normalize(v_dir);
     int ray_index = closest_relight_ray(dir);
     vec2 relight_ray_uv = texelFetch(u_relight_uvs_texture, ivec2(ray_index, v_probe_index), 0).rg;
-    vec4 lookedup_light = texture(u_lightmap, relight_ray_uv);
+    vec4 lookedup_light = vec4(texture(u_lightmap, relight_ray_uv).rgb,1);
     o_color = lookedup_light;
 
     if (relight_ray_uv.x == -1.0) {
         o_color = vec4(1.0, 0.0, 1.0, 1.0); // Make missed rays magenta-colored
     }
-
+    
 //    o_color = vec4(float(ray_index) / 100.0, 0.0, 0.0, 1.0);
 }

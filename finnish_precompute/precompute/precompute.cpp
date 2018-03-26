@@ -435,7 +435,7 @@ int main(int argc, char * argv[]) {
 		std::vector<vec3> relight_ray_directions;
 
 		printf("\nGenerating relight ray directions...\n");
-		generate_relight_ray_directions(relight_ray_directions, RELIGHT_RAYS_PER_PROBE);
+		generate_relight_ray_directions_spaced(relight_ray_directions, RELIGHT_RAYS_PER_PROBE);
 		write_probe_data(relight_ray_directions, "../../assets/precompute/relight_directions.dat");
 		printf("\nPrecomputing relight uvs...\n");
 
@@ -461,9 +461,8 @@ int main(int argc, char * argv[]) {
 		int num_recs = receivers.size();
 		int num_comps = 2;
 
-		fwrite(&num_recs, sizeof(num_recs),1,f);
 		fwrite(&num_comps, sizeof(num_comps), 1, f);
-
+		fwrite(&num_recs, sizeof(num_recs),1,f);
 		for (Receiver rec: receivers){
 			fwrite(rec.px.data(), sizeof(int), 2, f);
 		}

@@ -182,7 +182,7 @@ function makeTextureFromMatrix1(matrix) {
 	options['format'] = PicoGL.RED;
 	options['internalFormat'] = PicoGL.R32F;
 	options['type'] = PicoGL.FLOAT;		
-	return app.createTexture2D(matrix.data, matrix.height, matrix.width, options);
+	return app.createTexture2D(matrix.col_major_data, matrix.cols, matrix.rows, options);
 }
 
 function makeTexture4096fromFloatArr(data) {
@@ -408,21 +408,24 @@ function init() {
             loading_done();
         });
 
-	var matrix_loader = new MatrixLoader();
 
 
 	dat_loader.load("assets/precompute/probes.dat", function(value) {
 		probeLocations = value.reduce( (a,b) => a.concat(b) );
 	});
 
+	var matrix_loader = new MatrixLoader();
+
 	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
 		sigma_v_texture = makeTextureFromMatrix1(sigma_v);
+		console.log(sigma_v);
 		// console.log(sigma_v.width,sigma_v.height);
 		setupTransformPCFramebuffer(16,16); // num pc components * num shs 
 	}, Float32Array);
 
 	matrix_loader.load("assets/precompute/u.matrix", function(u_mat){
-		u_texture = makeTexture4096fromFloatArr(u_mat.data);
+		u_texture = makeTexture4096fromFloatArr(u_mat.col_major_data);
+		console.log(u_mat);
 	}, Float32Array);
 
 	matrix_loader.load("assets/precompute/receiver_px_map.imatrix", function(px_map_mat){
@@ -692,7 +695,7 @@ function createVertexArrayFromMeshInfo(meshInfo) {
 
 
 function createGIVAO(px_map) {
-	var buf_px_map  = app.createVertexBuffer(PicoGL.INT, 2, px_map.data);
+	var buf_px_map  = app.createVertexBuffer(PicoGL.INT, 2, px_map.col_major_data);
 	var vertexArray = app.createVertexArray()
 	.vertexIntegerAttributeBuffer(0, buf_px_map);
 	return vertexArray;
@@ -753,8 +756,8 @@ function render() {
         var lightmap = lightMapFramebuffer.colorTextures[0];
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
-		// render_probe_pc_transfrom();
-		// render_gi();
+		render_probe_pc_transfrom();
+		render_gi();
 
 		renderScene();
 

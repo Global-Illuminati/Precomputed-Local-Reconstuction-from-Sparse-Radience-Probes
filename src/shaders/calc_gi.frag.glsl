@@ -10,19 +10,23 @@ void main()
 	int num_pc_probes = 16;
 	
 	vec3 ret = vec3(0);
-	for(int i = 0; i< num_pc_probes;i++){
-		for(int j=0;j<4;j++){  // 4 = num_sh_probes / 4 = 16 / 4
-			 // we might want to calculate this earlier, dependency for read, want to allow for the driver to hide latency etc.
-			 // but then we need it stored so maybe not?
-			ivec2 rec_loc = ivec2((sh_index + i*4+j)&4094, (sh_index+i*4+j)>>12);
+	int log2_tex_size = 12;
+	int mask = (1<<log2_tex_size)-1;
+
+	for(int i = 0; i< 16;i++){
+		for(int j=0;j<4;j++){  // 4 = num_pc_probes / 4 = 16 / 4
+			// we might want to calculate this earlier, dependency for read, want to allow for the driver to hide latency etc.
+			// but then we need it stored so maybe not?
+
+			int rec_index = (sh_index + i*4+j);
+			ivec2 rec_loc = ivec2(rec_index & mask, rec_index>>log2_tex_size);
 			vec4 a = texelFetch(rec_sh_coeffs,rec_loc,0);
 
-			ret += a.x * texelFetch(pc_sh_coeffs,ivec2(i,j*4+0),0).xyz;
-			ret += a.y * texelFetch(pc_sh_coeffs,ivec2(i,j*4+1),0).xyz;
-			ret += a.z * texelFetch(pc_sh_coeffs,ivec2(i,j*4+2),0).xyz;
-			ret += a.w * texelFetch(pc_sh_coeffs,ivec2(i,j*4+3),0).xyz;
+			ret += a.x * texelFetch(pc_sh_coeffs,ivec2(j*4+0,i),0).xyz;
+			ret += a.y * texelFetch(pc_sh_coeffs,ivec2(j*4+1,i),0).xyz;
+			ret += a.z * texelFetch(pc_sh_coeffs,ivec2(j*4+2,i),0).xyz;
+			ret += a.w * texelFetch(pc_sh_coeffs,ivec2(j*4+3,i),0).xyz;
 		}
 	}
 	o_light = vec4(ret,1);
-	
 }

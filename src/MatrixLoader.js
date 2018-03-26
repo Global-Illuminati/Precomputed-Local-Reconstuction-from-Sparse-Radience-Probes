@@ -25,10 +25,10 @@ MatrixLoader.prototype = {
 
     read: function(buffer,typed_array) {
         var dataview = new DataView(buffer);
-        var w = dataview.getInt32(0, true);
-        var h = dataview.getInt32(4, true);
+        var c = dataview.getInt32(0, true);
+        var r = dataview.getInt32(4, true);
         var ret = new typed_array(buffer,8);
-        if(w*h != ret.length) console.error('matrix dimensions and data length is inconsistent');
-        return {data:ret,width:w,height:h};
+        if(c*r != ret.length) console.error('matrix dimensions and data length is inconsistent');
+        return {col_major_data:ret,cols:c,rows:r};
     },
 }

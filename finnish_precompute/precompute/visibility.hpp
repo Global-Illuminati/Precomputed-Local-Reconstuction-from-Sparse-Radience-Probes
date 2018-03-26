@@ -74,7 +74,7 @@ mat4 look_at(vec3 eye, vec3 center, vec3 up) {
 		0, 0, 0, 1;
 	return res;
 }
-#include <fstream>;
+#include <fstream>
 
 GLuint LoadShaders(const char * vertex_file_path, const char * fragment_file_path) {
 
@@ -538,9 +538,12 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	RedSVD::RedSVD<Eigen::SparseMatrix<float>> s;
 	s.compute(coeff_matrix, 16);
 
-	store_matrix(s.matrixU().transpose(), "../../assets/precompute/u.matrix"); // transpose to store with all probes adjecent to each other 
-	auto SvT = Eigen::DiagonalMatrix<float, Eigen::Dynamic>(s.singularValues()) * s.matrixV().transpose();
-	store_matrix(SvT, "../../assets/precompute/simga_v.matrix");
+	store_matrix(s.matrixU(), "../../assets/precompute/u.matrix"); 
+	
+	// no transpose to store shs adjacently to each other 
+	auto SV = Eigen::DiagonalMatrix<float, Eigen::Dynamic>(s.singularValues()) * s.matrixV();
+	store_matrix(SV, "../../assets/precompute/sigma_v.matrix");
+
 
 	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 

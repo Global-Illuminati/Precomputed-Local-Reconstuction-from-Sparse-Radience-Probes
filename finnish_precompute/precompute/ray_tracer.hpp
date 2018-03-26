@@ -67,7 +67,6 @@ vec3d permute(vec3d v, ivec3 permutation) {
 	return vec3d(v[permutation.x()], v[permutation.y()], v[permutation.z()]);
 }
 
-#pragma optimize("", on)
 
 InternalRay make_internal_ray(Ray ray) {
 	ivec3 permutation;
@@ -146,7 +145,6 @@ bool intersect(InternalRay &ray, const Triangle &t, HitInfo *hit_info) {
 	if (det < 0 && (t_scaled >= 0 || t_scaled < ray.t_max*det)) return false;
 	else if (det > 0 && (t_scaled <= 0 || t_scaled > ray.t_max*det)) return false;
 
-
 	// finally compute barycentric coords
 	double inv_det = 1.0f / det;
 	float b0 = (float)(e0 * inv_det);
@@ -219,4 +217,3 @@ bool lightmap_uv_of_closest_intersection(Ray ray, Atlas_Output_Mesh *light_map_m
 
 
 
-#pragma optimize("", on)

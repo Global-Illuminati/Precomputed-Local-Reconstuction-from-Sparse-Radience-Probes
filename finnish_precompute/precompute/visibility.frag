@@ -21,7 +21,7 @@ void main()
 		vec3 probe_dir = probe_pos[i]-world_pos; 
 		float sampled_light_dist = texture(probe_depth[i], -probe_dir).r; // why the minus here?? 
 		float real_distance = length(probe_dir);
-		out_value[i] = (real_distance >= sampled_light_dist + 0.03) ? vec4(probe_dir,probe_weight[i]) : vec4(0.0);
+		out_value[i] = (real_distance >= sampled_light_dist + 0.03) ? vec4(-probe_dir,probe_weight[i]) : vec4(0.0);
 		ack_probe_weight += out_value[i].a;
 	}
 	float inv_ack_probe_weight = (ack_probe_weight == 0.0) ? 0.0 : (1.0/ack_probe_weight);
