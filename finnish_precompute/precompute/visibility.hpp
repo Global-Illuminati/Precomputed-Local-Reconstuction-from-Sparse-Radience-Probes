@@ -511,7 +511,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	int num_coeffs_per_probe = num_sh_coeffs;
 	int num_coeffs_per_rec = num_probes_per_rec * num_coeffs_per_probe;
 
-	Eigen::SparseMatrix<float> coeff_matrix(receivers.size()*num_coeffs_per_probe,num_probes);
+	Eigen::SparseMatrix<float> coeff_matrix(receivers.size(),num_probes*num_coeffs_per_probe);
 	std::vector<Eigen::Triplet<float>> coefficients;
 
 	int num_handled_coefficients = 0;
@@ -524,8 +524,8 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 					coeff = 0.0f;
 				}
 				coefficients.push_back({
-					receiver_index*num_coeffs_per_probe + i,
-					receivers[receiver_index]->visible_probes[probe_index].index,
+					receiver_index,
+					receivers[receiver_index]->visible_probes[probe_index].index * num_coeffs_per_probe + i,
 					coeff
 				});
 			}
@@ -534,6 +534,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 
 	coeff_matrix.setFromTriplets(coefficients.begin(), coefficients.end());
+	store_matrix(coeff_matrix.toDense(), "../../assets/precompute/full_matrix.matrix");
 
 	RedSVD::RedSVD<Eigen::SparseMatrix<float>> s;
 	s.compute(coeff_matrix, 16);

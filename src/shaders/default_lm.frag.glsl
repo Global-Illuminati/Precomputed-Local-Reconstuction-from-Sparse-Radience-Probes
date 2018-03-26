@@ -56,7 +56,7 @@ void main()
 	//////////////////////////////////////////////////////////
 	// ambient
 	//vec3 color = u_ambient_color.rgb * diffuse;
-	vec3 color  = texture(u_light_map,v_lightmap_coord).xyz*10.0;
+	vec3 color  = texture(u_light_map,v_lightmap_coord).xyz;
 	//o_color = vec4(color,1)*100.0;
 
 	//////////////////////////////////////////////////////////

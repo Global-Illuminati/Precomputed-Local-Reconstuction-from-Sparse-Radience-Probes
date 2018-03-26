@@ -69,6 +69,8 @@ var relight_dirs_texture;
 var sigma_v_texture;
 
 var u_texture;
+var full_texture;
+
 var px_map_vao;
 
 var calcGIShader;
@@ -324,6 +326,7 @@ function init() {
 	shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
 	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
 	shaderLoader.addShaderProgram('calc_gi', 'calc_gi.vert.glsl', 'calc_gi.frag.glsl');
+	shaderLoader.addShaderProgram('calc_gi_no_svd', 'calc_gi_no_svd.vert.glsl', 'calc_gi_no_svd.frag.glsl');
 	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
 
     shaderLoader.addShaderProgram('probeRadiance', 'probe_radiance.vert.glsl', 'probe_radiance.frag.glsl');
@@ -352,7 +355,10 @@ function init() {
 		lightMapShader = makeShader('lightMapping', data);
 		
 		var transformPCProbesShader = makeShader('transform_pc_probes', data);
-		calcGIShader = makeShader('calc_gi', data);
+		// calcGIShader = makeShader('calc_gi', data);
+		calcGIShader = makeShader('calc_gi_no_svd', data);
+
+
 		if(px_map_vao) GIDrawCall =app.createDrawCall(calcGIShader, px_map_vao, PicoGL.POINTS);
 		
 		transformPCProbesDrawCall = app.createDrawCall(transformPCProbesShader,fullscreenVertexArray);
@@ -434,6 +440,11 @@ function init() {
 		px_map_vao = createGIVAO(px_map_mat);
 		if(calcGIShader) GIDrawCall = app.createDrawCall(calcGIShader,px_map_vao,PicoGL.POINTS);
 	}, Int32Array);
+
+	matrix_loader.load("assets/precompute/full_matrix.matrix", function(full_mat){
+		full_texture = makeTexture4096fromFloatArr(full_mat.col_major_data);
+		console.log(full_mat);
+	}, Float32Array);
 
     initProbeToggleControls();
 }
@@ -766,7 +777,7 @@ function render() {
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
 		render_probe_pc_transfrom();
-		render_gi();
+		render_gi_no_svd();
 
 		renderScene();
 
@@ -899,7 +910,7 @@ function render_probe_pc_transfrom()
 		.clear();
 
 		transformPCProbesDrawCall
-		.texture('sigma_vt', sigma_v_texture)
+		.texture('sigma_v', sigma_v_texture)
 		.texture('sh_coeffs', probeRadianceFramebuffer.colorTextures[0])
 		.draw();
 	}
@@ -922,6 +933,23 @@ function render_gi()
 		.texture('rec_sh_coeffs', u_texture).draw();
 	}
 	
+}
+
+function render_gi_no_svd()
+{
+	if(transformPCFramebuffer && u_texture && gilightMapFramebuffer)
+	{
+		app.drawFramebuffer(gilightMapFramebuffer)
+		.viewport(0, 0, lightMapSize, lightMapSize)
+		.noDepthTest()
+		.noBlend()
+		.clearColor(0,0,0)
+		.clear();
+		
+		GIDrawCall
+		.texture('probes_sh_coeffs',probeRadianceFramebuffer.colorTextures[0])
+		.texture('rec_sh_coeffs', full_texture).draw();
+	}
 }
 
 function renderScene() {
