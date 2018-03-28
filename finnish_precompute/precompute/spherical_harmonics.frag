@@ -11,7 +11,7 @@ void main()
 
 	for(int i = 0; i<2; i++)
 	{
-		vec4 in_value = texelFetch(in_texture[i],ivec2(gl_FragCoord),0);
+		vec4 in_value = texelFetch(in_texture[i],ivec2(gl_FragCoord.xy),0);
 		float weight = in_value.a;
 		vec3 probe_dir = in_value.xyz;
 		if(probe_dir == vec3(0,0,0)) continue;

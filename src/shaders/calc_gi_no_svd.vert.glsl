@@ -1,13 +1,17 @@
 #version 300 es
 precision highp float;
+precision highp int;
 
 layout(location = 0) in ivec2 a_px_map;
-flat out int sh_index;
+layout(location = 1) in ivec4 a_probe_indices; //8 of int16s stored in a ivec4...
+
+flat out int receiver_index;
+flat out ivec4 probe_indices;
 void main()
 {
-	int num_probes = 6;
-
-	sh_index = gl_VertexID*num_probes*16;
+	probe_indices = a_probe_indices;
+	receiver_index = gl_VertexID;
 	gl_Position = vec4((vec2(a_px_map)+vec2(0.5))*(2.0/1024.0)-1.0,0,1);
 	gl_PointSize = 1.0/1024.0;
+
 }

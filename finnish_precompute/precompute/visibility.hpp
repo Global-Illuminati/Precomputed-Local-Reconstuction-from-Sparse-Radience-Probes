@@ -284,6 +284,20 @@ void store_matrix(Eigen::MatrixXf mat, char *path) {
 	fclose(file);
 }
 
+void store_matrixi(Eigen::Matrix<int16_t,Eigen::Dynamic,Eigen::Dynamic> mat, char *path) {
+	FILE *file = fopen(path, "wb");
+
+	int w = mat.cols();
+	int h = mat.rows();
+
+	fwrite(&w, sizeof(w), 1, file);
+	fwrite(&h, sizeof(h), 1, file);
+
+	fwrite(mat.data(), sizeof(short), mat.size(), file);
+	fclose(file);
+}
+#pragma optimize("", on);
+
 // assumes that the currently bound vao is the entire scene to be rendered.
 std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>probes) {
 	GLuint shadow_map_program = LoadShaders("shadow_map.vert", "shadow_map.frag");
@@ -375,7 +389,6 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	glViewport(0, 0, sh_samples, sh_samples);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_ONE, GL_ONE);
-	glEnable(GL_DEPTH_TEST);
 
 	check_gl_error();
 
@@ -394,6 +407,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 		ReceiverData *receiver = receivers[receiver_index];
 		glClearColor(0, 0, 0, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		glEnable(GL_DEPTH_TEST);
 
 		vec3 probe_positions[num_probes_per_rec];
 		for (int i = 0; i < num_probes_per_rec; i++)
@@ -437,6 +451,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 			glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, (void *)0);
 		}
 
+			glDisable(GL_DEPTH_TEST);
 		// Output spherical harmonics, two probes per iteration.
 		for (int i = 0; i < num_probes_per_rec; i += 2) {
 			if (receiver->num_visible_probes <= i) break;
@@ -509,40 +524,55 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	float* sh_coeffs = (float*)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
 
 	int num_coeffs_per_probe = num_sh_coeffs;
-	int num_coeffs_per_rec = num_probes_per_rec * num_coeffs_per_probe;
 
 	Eigen::SparseMatrix<float> coeff_matrix(receivers.size(),num_probes*num_coeffs_per_probe);
 	std::vector<Eigen::Triplet<float>> coefficients;
+
+	Eigen::MatrixXf full_mat_nz(num_probes_per_rec*num_sh_coeffs,receivers.size());
+	Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic> probe_indices(num_probes_per_rec, receivers.size());
+	probe_indices.fill(-1);
 
 	int num_handled_coefficients = 0;
 	for (int receiver_index = 0; receiver_index < receivers.size(); receiver_index++) {
 		for (int probe_index = 0; probe_index < receivers[receiver_index]->num_visible_probes; probe_index++) {
 			for (int i = 0; i < num_coeffs_per_probe; i++) {
-				float coeff = sh_coeffs[num_handled_coefficients++];
+				float coeff = sh_coeffs[num_handled_coefficients++]*(1/6.0f);
 				if (std::isnan(coeff)) {
 					__debugbreak();
 					coeff = 0.0f;
 				}
+				full_mat_nz(probe_index*num_sh_coeffs + i, receiver_index) = coeff;
+
 				coefficients.push_back({
 					receiver_index,
 					receivers[receiver_index]->visible_probes[probe_index].index * num_coeffs_per_probe + i,
 					coeff
 				});
 			}
+			probe_indices(probe_index, receiver_index) = receivers[receiver_index]->visible_probes[probe_index].index;
 		}
 	}
 
+	if (num_handled_coefficients != num_written_shs) 
+		__debugbreak(); // we fucked up the transfer to/out of the pbo 
+
+
+
+	store_matrix(full_mat_nz, "../../assets/precompute/full_nz.matrix");
+	store_matrixi(probe_indices, "../../assets/precompute/probe_indices.imatrix");
 
 	coeff_matrix.setFromTriplets(coefficients.begin(), coefficients.end());
-	store_matrix(coeff_matrix.toDense(), "../../assets/precompute/full_matrix.matrix");
+	store_matrix(coeff_matrix.transpose().toDense(), "../../assets/precompute/full_matrix.matrix");
 
 	RedSVD::RedSVD<Eigen::SparseMatrix<float>> s;
-	s.compute(coeff_matrix, 16);
+	s.compute(coeff_matrix, 64);
 
-	store_matrix(s.matrixU(), "../../assets/precompute/u.matrix"); 
-	
-	// no transpose to store shs adjacently to each other 
-	auto SV = Eigen::DiagonalMatrix<float, Eigen::Dynamic>(s.singularValues()) * s.matrixV();
+	//transpose to store stuff adjecently
+	store_matrix(s.matrixU().transpose(), "../../assets/precompute/u.matrix");
+
+	auto sigma = Eigen::DiagonalMatrix<float, Eigen::Dynamic>(s.singularValues()).toDenseMatrix();
+	auto V = Eigen::MatrixXf(s.matrixV());
+	auto SV = sigma*V.transpose();
 	store_matrix(SV, "../../assets/precompute/sigma_v.matrix");
 
 
@@ -551,6 +581,8 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteRenderbuffers(1, &depth_buffer);
 }
+#pragma optimize("", on);
+
 
 void load_mesh(Mesh *mesh) {
 	GLuint vao, vertex_buffer, index_buffer, normal_buffer;

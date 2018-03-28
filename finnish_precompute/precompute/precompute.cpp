@@ -31,7 +31,7 @@ const char *get_file_data(size_t *data_len, const char *file_path) {
 	fseek(file, 0, SEEK_END);
 	size_t file_size = ftell(file);
 	rewind(file);
-	char *data = (char *)malloc(file_size+1);
+	char *data = (char *)malloc(file_size + 1);
 	data[file_size] = '\0';
 	if (data) {
 		fread(data, 1, file_size, file);
@@ -167,14 +167,14 @@ iAABB2 transform_to_pixel_space(AABB2 bounding_box, Atlas_Output_Mesh *mesh) {
 
 
 vec2 get_pixel_center(ivec2 pixel) {
-	return vec2(pixel.x()+0.5, pixel.y()+0.5);
+	return vec2(pixel.x() + 0.5, pixel.y() + 0.5);
 }
 
 vec3 compute_barycentric_coords(vec2 p, Triangle2 &tri) {
 	vec2 v0 = tri.b - tri.a;
 	vec2 v1 = tri.c - tri.a;
 	vec2 v2 = p - tri.a;
-	float inv_denom = 1.0f/(v0.x() * v1.y() - v1.x() * v0.y());
+	float inv_denom = 1.0f / (v0.x() * v1.y() - v1.x() * v0.y());
 	float v = (v2.x() * v1.y() - v1.x() * v2.y()) * inv_denom;
 	float w = (v0.x() * v2.y() - v2.x() * v0.y()) * inv_denom;
 	float u = 1.0f - v - w;
@@ -187,15 +187,41 @@ struct Receiver {
 	ivec2 px;
 };
 
+#include <set>;
 void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, std::vector<Receiver> &receivers) {
 
 	printf("computing receiver locations\n");
 	static uint8_t pixel_is_processed[1024][1024];
+
+#if 0
+	std::set<Receiver, std::function<bool(Receiver, Receiver)>>
+	theset(std::function<bool(Receiver, Receiver) >>
+		vec3 da = probe_locations[ia] - receiver.pos;
+		vec3 db = probe_locations[ib] - receiver.pos;
+		return (da.dot(da) < db.dot(db));
+	});
+
+#endif
+	// @Performance Runtime:
+	//  Investigate if changing this to
+	//  instead compare the morton code 
+	//  causes any significant runtime performance difference,
+	//  it will cause the receivers to be more spatially coherent.
+	//  might have a slight benefit.
+
+	auto cmp = [](Receiver a, Receiver b) { 
+		return 
+			 (a.px.x() <  b.px.x()) || 
+			((a.px.x() == b.px.x()) && a.px.y() < b.px.y()); 
+	};
+	std::set<Receiver, decltype(cmp)> receiver_set(cmp);
+
+
 	for (int face_idx = 0; face_idx < light_map_mesh->index_count / 3; face_idx++) {
 		auto new_a_idx = light_map_mesh->index_array[face_idx * 3 + 0];
 		auto new_b_idx = light_map_mesh->index_array[face_idx * 3 + 1];
 		auto new_c_idx = light_map_mesh->index_array[face_idx * 3 + 2];
-		
+
 		int xref_a = light_map_mesh->vertex_array[new_a_idx].xref;
 		int xref_b = light_map_mesh->vertex_array[new_b_idx].xref;
 		int xref_c = light_map_mesh->vertex_array[new_c_idx].xref;
@@ -208,32 +234,51 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 		vec3 norm_b = mesh.normals[xref_b];
 		vec3 norm_c = mesh.normals[xref_c];
 
-
-
 		vec2 uv_a = Eigen::Map<vec2>(light_map_mesh->vertex_array[new_a_idx].uv);
 		vec2 uv_b = Eigen::Map<vec2>(light_map_mesh->vertex_array[new_b_idx].uv);
 		vec2 uv_c = Eigen::Map<vec2>(light_map_mesh->vertex_array[new_c_idx].uv);
 
-		Triangle2 uv_tri = { uv_a,uv_b,uv_c};
+		Triangle2 uv_tri = { uv_a,uv_b,uv_c };
 
-		iAABB2 pixel_bounds = transform_to_pixel_space(aabb_from_triangle(uv_tri),light_map_mesh);
+		iAABB2 pixel_bounds = transform_to_pixel_space(aabb_from_triangle(uv_tri), light_map_mesh);
 		ivec2 min = pixel_bounds.min;
 		ivec2 max = pixel_bounds.max;
-		
+
 		for (int x = min.x(); x < max.x(); x++) for (int y = min.y(); y < max.y(); y++) {
 			if (pixel_is_processed[x][y])continue;
 			ivec2 pixel = ivec2(x, y);
-			vec3 baryc = compute_barycentric_coords(get_pixel_center(pixel), uv_tri);
+			vec2 px_center = get_pixel_center(pixel);
+			vec3 box_center = vec3(px_center.x(), px_center.y(),0.0f);
+			vec3 half_size = vec3(1.0f,1.0f,1.0f);
+			Triangle tri = { 
+				vec3(uv_tri.a.x(),uv_tri.a.y(),0.0f),
+				vec3(uv_tri.b.x(),uv_tri.b.y(),0.0f),
+				vec3(uv_tri.c.x(),uv_tri.c.y(),0.0f)
+			};
+			
 
-			if (baryc.x()>0 && baryc.y()>0 && baryc.z()>0) {
-				pixel_is_processed[x][y] = true;
+
+			// @Performance 
+			// we call a 3D aabb-triangle intersection routine
+			// although we only need the 2D case
+			// not performance critial though so meh.
+			bool triangle_inside_px_influence = TriBoxOverlap(box_center.data(), half_size.data(), (float(*)[3])&tri);
+
+			if (triangle_inside_px_influence) {
+				vec3 baryc = compute_barycentric_coords(get_pixel_center(pixel), uv_tri);
+				bool px_center_inside_tri = (baryc.x() > 0 && baryc.y() > 0 && baryc.z() > 0);
+				pixel_is_processed[x][y] = px_center_inside_tri;
+
 				vec3 pos = vert_a * baryc.x() + vert_b * baryc.y() + vert_c * baryc.z();
 				vec3 norm = norm_a * baryc.x() + norm_b * baryc.y() + norm_c * baryc.z();
-				receivers.push_back({ pos,norm,pixel});
+				receiver_set.insert({ pos,norm,pixel });
 			}
 		}
 	}
-	printf("got %d receivers\n",receivers.size());
+
+	std::copy(receiver_set.begin(), receiver_set.end(), std::back_inserter(receivers));
+
+	printf("got %d receivers\n", receivers.size());
 }
 
 void generate_normals(Mesh *mesh) {
@@ -283,6 +328,54 @@ void generate_normals(Mesh *mesh) {
 #include "visibility.hpp"
 
 
+Eigen::MatrixXf load_matrix(char *file) {
+	FILE *f = fopen(file, "rb");
+	int cols, rows;
+
+	fread(&cols, sizeof(int), 1, f);
+	fread(&rows, sizeof(int), 1, f);
+
+	float *data = (float *)malloc(cols*rows * sizeof(float));
+	fread(data, sizeof(float), cols*rows, f);
+	fclose(f);
+
+	return Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>>(data, rows, cols);
+}
+
+// No longer neccessary
+// produces full_nz and probe_indices from full_matrix
+// atleast keep until we verify that the direct export works.
+void remove_zeros_from_matrix() {
+	auto full = load_matrix("../../assets/precompute/full_matrix.matrix");
+	Eigen::MatrixXf mat(8*16, full.cols());
+	Eigen::Matrix<int16_t,Eigen::Dynamic,Eigen::Dynamic> probe_indices(8, full.cols());
+	probe_indices.fill(-1);
+
+	for (int r = 0; r < full.cols(); r++) {
+		int num_visible = 0;
+		for (int p = 0; p < full.rows() / 16; p++) {
+			bool probe_visible=false;
+			for (int sh = 0; sh < 16; sh++) {
+				if (full(p * 16 + sh,r) != 0.0f) {
+					probe_visible = true;
+					break;
+				}
+			}
+			if (probe_visible) {
+				for (int sh = 0; sh < 16; sh++) {
+					mat(num_visible * 16 + sh, r) = full(p * 16 + sh, r);
+				}
+				probe_indices(num_visible, r) = p;
+				++num_visible;
+			}
+		}
+	}
+
+	store_matrix(mat, "../../assets/precompute/full_nz.matrix");
+	store_matrixi(probe_indices, "../../assets/precompute/probe_indices.imatrix");
+}
+
+
 int main(int argc, char * argv[]) {
 	tinyobj_attrib_t attr;
 	tinyobj_shape_t* shapes = NULL;
@@ -290,8 +383,9 @@ int main(int argc, char * argv[]) {
 	tinyobj_material_t* materials = NULL;
 	size_t num_materials;
 
+	//remove_zeros_from_matrix();
+
 	const char *obj_file_path = "../../assets/sponza/sponza.obj";
-	//const char *obj_file_path = "A:/sphere_ico.obj";
 
 	{
 		size_t data_len = 0;
@@ -303,7 +397,7 @@ int main(int argc, char * argv[]) {
 
 		unsigned int flags = TINYOBJ_FLAG_TRIANGULATE;
 		int ret = tinyobj_parse_obj(&attr, &shapes, &num_shapes, &materials,
-			&num_materials, data, data_len+1, flags);
+			&num_materials, data, data_len + 1, flags);
 		if (ret != TINYOBJ_SUCCESS) {
 			return 0;
 		}
@@ -334,7 +428,7 @@ int main(int argc, char * argv[]) {
 		faces[i].vertex_index[0] = attr.faces[i * 3 + 0].v_idx;
 		faces[i].vertex_index[1] = attr.faces[i * 3 + 1].v_idx;
 		faces[i].vertex_index[2] = attr.faces[i * 3 + 2].v_idx;
-		
+
 	}
 
 	for (int i = 0; i < attr.num_vertices; i++) {
@@ -374,10 +468,10 @@ int main(int argc, char * argv[]) {
 	Atlas_Input_Mesh input_mesh;
 	input_mesh.vertex_count = attr.num_vertices;
 	input_mesh.vertex_array = verts;
-	input_mesh.face_count = attr.num_faces/3;
+	input_mesh.face_count = attr.num_faces / 3;
 	input_mesh.face_array = faces;
 
-	Atlas_Output_Mesh *output_mesh =NULL;
+	Atlas_Output_Mesh *output_mesh = NULL;
 #if 1
 	{
 		// Generate Atlas_Output_Mesh.
@@ -391,9 +485,9 @@ int main(int argc, char * argv[]) {
 		atlas_options.packer_options.witness.texel_area = 2; // approx the size we want 
 		atlas_options.packer_options.witness.block_align = false;
 		atlas_options.charter_options.witness.max_chart_area = 100;
-		
 
-	
+
+
 		Atlas_Error error = Atlas_Error_Success;
 		output_mesh = atlas_generate(&input_mesh, &atlas_options, &error);
 
@@ -407,9 +501,9 @@ int main(int argc, char * argv[]) {
 		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/sponza/sponza.obj_2xuv");
 	}
 #endif
-	
+
 	static VoxelScene data;
-	
+
 
 	std::vector<vec3>probes;
 	{//voxelize and generate probes
@@ -418,9 +512,9 @@ int main(int argc, char * argv[]) {
 		std::vector<ivec3>probe_voxels;
 		flood_fill_voxel_scene(&data, probe_voxels);
 		write_voxel_data(&data, "../voxels.dat");
-		
+
 		get_voxel_centers(probe_voxels, &data, probes);
-		
+
 		reduce_probes(probes, &data, RHO_PROBES / 4);
 		reduce_probes(probes, &data, RHO_PROBES / 2);
 		reduce_probes(probes, &data, RHO_PROBES);
@@ -431,6 +525,7 @@ int main(int argc, char * argv[]) {
 	}
 
 	std::vector<ProbeData> probe_data(probes.size());
+#if 1
 	{
 		std::vector<vec3> relight_ray_directions;
 
@@ -450,7 +545,7 @@ int main(int argc, char * argv[]) {
 		write_relight_uvs(probe_data, "../../assets/precompute/relight_uvs.dat");
 		write_relight_shs(relight_ray_directions, "../../assets/precompute/relight_shs.dat");
 	}
-
+#endif
 
 
 	std::vector<Receiver>receivers;
@@ -462,8 +557,8 @@ int main(int argc, char * argv[]) {
 		int num_comps = 2;
 
 		fwrite(&num_comps, sizeof(num_comps), 1, f);
-		fwrite(&num_recs, sizeof(num_recs),1,f);
-		for (Receiver rec: receivers){
+		fwrite(&num_recs, sizeof(num_recs), 1, f);
+		for (Receiver rec : receivers) {
 			fwrite(rec.px.data(), sizeof(int), 2, f);
 		}
 		fclose(f);
@@ -473,7 +568,7 @@ int main(int argc, char * argv[]) {
 		visibility(receivers, probes, &m);
 	}
 
-	
+
 	// Free stuff
 	atlas_free(output_mesh);
 	free(faces);

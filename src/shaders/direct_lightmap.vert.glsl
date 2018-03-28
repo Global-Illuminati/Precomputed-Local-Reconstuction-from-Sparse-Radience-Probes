@@ -14,6 +14,7 @@ out vec3 v_tangent;
 out vec3 v_bitangent;
 out vec2 v_tex_coord;
 out vec4 v_light_space_position;
+out vec2 v_lightmap_coord;
 
 void main()
 {
@@ -37,6 +38,8 @@ void main()
 	v_light_space_position = u_light_projection_from_world * vec4(world_space_position.xyz, 1.0);
 	v_light_space_position *= vec4(0.5, 0.5, 0.5, 1.0);
 	v_light_space_position += vec4(0.5, 0.5, 0.5, 0.0);
+
+	v_lightmap_coord = a_lightmap_coord;
 
 	gl_Position = vec4(a_lightmap_coord*2.0-1.0,0,1);
 }

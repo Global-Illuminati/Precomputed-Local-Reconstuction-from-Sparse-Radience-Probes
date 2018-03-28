@@ -9,7 +9,10 @@ var settings = {
 	target_fps: 60,
 	environment_brightness: 1.5,
     num_sh_coeffs_to_render: 16,
-	rotate_light: true
+	rotate_light: true,
+	view_gi_lightmap:false,
+	view_lightmap:false,
+	redraw_global_illumination:false,
 };
 
 var sceneSettings = {
@@ -71,7 +74,8 @@ var sigma_v_texture;
 var u_texture;
 var full_texture;
 
-var px_map_vao;
+var px_map;
+var probe_indices;
 
 var calcGIShader;
 var transformPCProbesDrawCall;
@@ -185,30 +189,26 @@ function makeTextureFromMatrix1(matrix) {
 	options['format'] = PicoGL.RED;
 	options['internalFormat'] = PicoGL.R32F;
 	options['type'] = PicoGL.FLOAT;		
-	return app.createTexture2D(matrix.col_major_data, matrix.cols, matrix.rows, options);
+	return app.createTexture2D(matrix.col_major_data, matrix.rows, matrix.cols, options);
 }
 
-function makeTexture4096fromFloatArr(data) {
+function makeTexturefromFloatArr(data) {
 	var options = {};
 	options['minFilter'] = PicoGL.NEAREST;
 	options['magFilter'] = PicoGL.NEAREST;
 	options['mipmaps'] = false;
-	options['format'] = PicoGL.RGBA;
-	options['internalFormat'] = PicoGL.RGBA32F;
+	options['format'] = PicoGL.RED;
+	options['internalFormat'] = PicoGL.R32F;
 	options['type'] = PicoGL.FLOAT;
 
 	// @ROBUSTNESS, spec requires support of only 1024x1024 but if the exist on my laptop maybe it's fine?
-	//              if the iphone 4s supports it maybe it should be fine for most pcs?
-	// 				also in the long term we'd like to compress the data better anyway, 200meg is a bit much for my taste
-	// 				and they get away with 80meg in the paper so we'll probably do what they do anyway
-	// 				but for now, here we are.
+	
+	var max_size = 1<<14;
 
-	var aligned_length = (data.length/4 + 4095) & ~4095;
-	console.log(data.length/4);
-	image_data = new Float32Array(aligned_length*4);
-	console.log('height:',aligned_length>>12,'length:',data.length,'aligned length:',aligned_length);
+	var aligned_length = (data.length + max_size-1) & ~(max_size-1);
+	image_data = new Float32Array(aligned_length);
 	image_data.set(data);
-	return app.createTexture2D(image_data, 4096, aligned_length >> 12,  options);
+	return app.createTexture2D(image_data, max_size, aligned_length >> 14,  options);
 }
 
 function makeShader(name, shaderLoaderData) {
@@ -289,6 +289,9 @@ function init() {
 	gui.add(settings, 'environment_brightness', 0.0, 2.0);
     gui.add(settings, 'num_sh_coeffs_to_render', 0, 16);
     gui.add(settings, 'rotate_light');
+    gui.add(settings, 'view_gi_lightmap');
+    gui.add(settings, 'view_lightmap');
+    gui.add(settings, 'redraw_global_illumination');
 
 	//////////////////////////////////////
 	// Basic GL state
@@ -333,6 +336,20 @@ function init() {
     shaderLoader.addShaderProgram('probeVisualizeSH', 'probe_visualize_sh.vert.glsl', 'probe_visualize_sh.frag.glsl');
     shaderLoader.addShaderProgram('probeVisualizeRaw', 'probe_visualize_raw.vert.glsl', 'probe_visualize_raw.frag.glsl');
 
+
+	var create_gi_draw_call = function()
+	{
+		if(px_map && calcGIShader && probe_indices)
+		{
+			var buf_px_map = app.createVertexBuffer(PicoGL.INT, 2, px_map.col_major_data);
+			var buf_probe_indices = app.createVertexBuffer(PicoGL.INT, 4, probe_indices.col_major_data)
+			var vertexArray = app.createVertexArray()
+			.vertexIntegerAttributeBuffer(0, buf_px_map)
+			.vertexIntegerAttributeBuffer(1, buf_probe_indices);
+			GIDrawCall = app.createDrawCall(calcGIShader, vertexArray, PicoGL.POINTS);
+		}
+		
+	}
 	shaderLoader.load(function(data) {
 
 		var fullscreenVertexArray = createFullscreenVertexArray();
@@ -355,11 +372,8 @@ function init() {
 		lightMapShader = makeShader('lightMapping', data);
 		
 		var transformPCProbesShader = makeShader('transform_pc_probes', data);
-		// calcGIShader = makeShader('calc_gi', data);
 		calcGIShader = makeShader('calc_gi_no_svd', data);
-
-
-		if(px_map_vao) GIDrawCall =app.createDrawCall(calcGIShader, px_map_vao, PicoGL.POINTS);
+		create_gi_draw_call();
 		
 		transformPCProbesDrawCall = app.createDrawCall(transformPCProbesShader,fullscreenVertexArray);
 
@@ -381,7 +395,7 @@ function init() {
  		}
 	}
 
-    var suffix = "_100"; //"";
+    var suffix = ""; //"";
     var relight_uvs_dir = "assets/precompute/relight_uvs" + suffix + ".dat";
     var relight_shs_dir = "assets/precompute/relight_shs" + suffix + ".dat";
     var relight_directions_dir = "assets/precompute/relight_directions" + suffix + ".dat";
@@ -423,29 +437,34 @@ function init() {
 	});
 
 	var matrix_loader = new MatrixLoader();
-
+/*
 	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
 		sigma_v_texture = makeTextureFromMatrix1(sigma_v);
-		console.log(sigma_v);
-		// console.log(sigma_v.width,sigma_v.height);
-		setupTransformPCFramebuffer(16,16); // num pc components * num shs 
+		setupTransformPCFramebuffer(64,1); // num pc components * num shs 
 	}, Float32Array);
 
 	matrix_loader.load("assets/precompute/u.matrix", function(u_mat){
-		u_texture = makeTexture4096fromFloatArr(u_mat.col_major_data);
-		console.log(u_mat);
+		u_texture = makeTexturefromFloatArr(u_mat.col_major_data);
+		
+		console.log('max_size', u_texture.gl.getParameter(u_texture.gl.MAX_TEXTURE_SIZE));
 	}, Float32Array);
-
+*/
 	matrix_loader.load("assets/precompute/receiver_px_map.imatrix", function(px_map_mat){
-		px_map_vao = createGIVAO(px_map_mat);
-		if(calcGIShader) GIDrawCall = app.createDrawCall(calcGIShader,px_map_vao,PicoGL.POINTS);
+		px_map = px_map_mat;
+		create_gi_draw_call();
 	}, Int32Array);
 
-	matrix_loader.load("assets/precompute/full_matrix.matrix", function(full_mat){
-		full_texture = makeTexture4096fromFloatArr(full_mat.col_major_data);
-		console.log(full_mat);
-	}, Float32Array);
+	matrix_loader.load("assets/precompute/probe_indices.imatrix", function(probe_indices_mat){
+		probe_indices=probe_indices_mat;
+		create_gi_draw_call();
+	}, Int16Array);
 
+
+	
+	matrix_loader.load("assets/precompute/full_nz.matrix", function(full_mat){
+		full_texture = makeTexturefromFloatArr(full_mat.col_major_data);
+	}, Float32Array);
+	
     initProbeToggleControls();
 }
 
@@ -645,7 +664,7 @@ function setupProbeRadianceFramebuffer() {
         internalFormat: PicoGL.RGBA8,
         minFilter: PicoGL.NEAREST,
         magFilter: PicoGL.NEAREST,
-    });
+	});
     var depthBuffer = app.createTexture2D(num_sh_coefficients, num_probes, {
         format: PicoGL.DEPTH_COMPONENT
     });
@@ -707,12 +726,6 @@ function createVertexArrayFromMeshInfo(meshInfo) {
 
 
 
-function createGIVAO(px_map) {
-	var buf_px_map  = app.createVertexBuffer(PicoGL.INT, 2, px_map.col_major_data);
-	var vertexArray = app.createVertexArray()
-	.vertexIntegerAttributeBuffer(0, buf_px_map);
-	return vertexArray;
-}
 
 function setupProbeDrawCalls(vertexArray, unlitShader, probeVisualizeSHShader, probeVisualizeRawShader) {
 
@@ -776,8 +789,12 @@ function render() {
         var lightmap = lightMapFramebuffer.colorTextures[0];
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
-		render_probe_pc_transfrom();
-		render_gi_no_svd();
+		if(settings.redraw_global_illumination)
+		{
+			//render_probe_pc_transfrom();
+			//render_gi();
+			render_gi_no_svd();
+		}
 
 		renderScene();
 
@@ -790,23 +807,18 @@ function render() {
 		
 
 		// Call this to get a debug render of the passed in texture
-		// renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
+		if(settings.view_lightmap){
+			renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
+		}
 		
         if (probeRadianceFramebuffer) {
 			 // renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
 		}
-		if(transformPCFramebuffer)
+		if(gilightMapFramebuffer && settings.view_gi_lightmap)
 		{
-			//renderTextureToScreen(transformPCFramebuffer.colorTextures[0]);
+			renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
 		}
-		if(gilightMapFramebuffer)
-		{
-			// renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
-		}
-		if(u_texture)
-		{
-			// renderTextureToScreen(u_texture);
-		}
+		// if(full_texture) renderTextureToScreen(full_texture);
 
 	}
 	picoTimer.end();
@@ -876,6 +888,7 @@ function renderLightmap() {
 	var dirLightViewDirection = directionalLight.viewSpaceDirection(camera);
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
+	var lightMap = gilightMapFramebuffer.colorTextures[0];
 
 	app.drawFramebuffer(lightMapFramebuffer)
 	.viewport(0, 0, lightMapSize, lightMapSize)
@@ -894,6 +907,7 @@ function renderLightmap() {
 		.uniform('u_dir_light_view_direction', dirLightViewDirection)
 		.uniform('u_light_projection_from_world', lightViewProjection)
 		.texture('u_shadow_map', shadowMap)
+		.texture('u_light_map', lightMap)
 		.draw();
 	}
 }
@@ -903,7 +917,7 @@ function render_probe_pc_transfrom()
 	if(sigma_v_texture && transformPCFramebuffer && probeRadianceFramebuffer && transformPCProbesDrawCall)
 	{
 		app.drawFramebuffer(transformPCFramebuffer)
-		.viewport(0, 0, 16, 16)
+		.viewport(0, 0, 64, 1)
 		.noDepthTest()
 		.noBlend()
 		.clearColor(0,0,0)
@@ -929,7 +943,7 @@ function render_gi()
 		.clear();
 		
 		GIDrawCall
-		.texture('pc_sh_coeffs',transformPCFramebuffer.colorTextures[0])
+		.texture('pc_sh_coeffs', transformPCFramebuffer.colorTextures[0])
 		.texture('rec_sh_coeffs', u_texture).draw();
 	}
 	
@@ -937,7 +951,7 @@ function render_gi()
 
 function render_gi_no_svd()
 {
-	if(transformPCFramebuffer && u_texture && gilightMapFramebuffer)
+	if(probeRadianceFramebuffer && full_texture && gilightMapFramebuffer)
 	{
 		app.drawFramebuffer(gilightMapFramebuffer)
 		.viewport(0, 0, lightMapSize, lightMapSize)
@@ -1005,7 +1019,6 @@ function renderProbes(viewProjection, type) {
                     .uniform('u_num_sh_coeffs_to_render', settings['num_sh_coeffs_to_render'])
                     .texture('u_probe_sh_texture', probeRadianceFramebuffer.colorTextures[0])
 					.draw();
-				console.log('drawing sh');
             }
             break;
         case 'raw':
