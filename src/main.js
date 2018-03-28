@@ -13,6 +13,7 @@ var settings = {
 	view_gi_lightmap:false,
 	view_lightmap:false,
 	redraw_global_illumination:false,
+	lightmap_only: true
 };
 
 var sceneSettings = {
@@ -29,6 +30,7 @@ var picoTimer;
 var defaultShader;
 var shadowMapShader;
 var lightMapShader;
+var texturedByLightmapShader;
 
 var blitTextureDrawCall;
 var environmentDrawCall;
@@ -59,6 +61,8 @@ var probeLocations = [
 ]
 var probeVisualizeMode = 'raw';
 var probeVisualizeUnlit = true;
+
+var precomputedLightMap;
 
 var num_probes;
 var num_relight_rays;
@@ -251,11 +255,18 @@ function loadObject(directory, objFilename, mtlFilename, modelMatrix) {
 				
 				var shadowMappingDrawCall = app.createDrawCall(shadowMapShader, vertexArray);
 
+				var texturedByLightmapDrawCall = app.createDrawCall(texturedByLightmapShader, vertexArray)
+                    .uniformBlock('SceneUniforms', sceneUniforms)
+                    .texture('u_diffuse_map', loadTexture(diffuseMap))
+                    .texture('u_specular_map', loadTexture(specularMap))
+                    .texture('u_normal_map', loadTexture(normalMap));
+
 				meshes.push({
 					modelMatrix: modelMatrix || mat4.create(),
 					drawCall: drawCall,
 					shadowMapDrawCall: shadowMappingDrawCall,
-					lightmapDrawCall: lightMappingDrawCall
+					lightmapDrawCall: lightMappingDrawCall,
+                    texturedByLightmapDrawCall: texturedByLightmapDrawCall
 				});
 
 			});
@@ -292,6 +303,7 @@ function init() {
     gui.add(settings, 'view_gi_lightmap');
     gui.add(settings, 'view_lightmap');
     gui.add(settings, 'redraw_global_illumination');
+    gui.add(settings, 'lightmap_only');
 
 	//////////////////////////////////////
 	// Basic GL state
@@ -303,8 +315,12 @@ function init() {
 	//////////////////////////////////////
 	// Camera stuff
 
-	var cameraPos = vec3.fromValues(-15, 3, 0);
-	var cameraRot = quat.fromEuler(quat.create(), 15, -90, 0);
+	// var cameraPos = vec3.fromValues(-15, 3, 0);
+	// var cameraRot = quat.fromEuler(quat.create(), 15, -90, 0);
+
+	var cameraPos = vec3.fromValues(0.0, 17.6906, 0.0);
+	var cameraRot = quat.fromEuler(quat.create(), -90, 0,0);
+
 	camera = new Camera(cameraPos, cameraRot);
 
 	//////////////////////////////////////
@@ -335,7 +351,7 @@ function init() {
     shaderLoader.addShaderProgram('probeRadiance', 'probe_radiance.vert.glsl', 'probe_radiance.frag.glsl');
     shaderLoader.addShaderProgram('probeVisualizeSH', 'probe_visualize_sh.vert.glsl', 'probe_visualize_sh.frag.glsl');
     shaderLoader.addShaderProgram('probeVisualizeRaw', 'probe_visualize_raw.vert.glsl', 'probe_visualize_raw.frag.glsl');
-
+    shaderLoader.addShaderProgram('texturedByLightmap', 'textured_by_lightmap.vert.glsl', 'textured_by_lightmap.frag.glsl');
 
 	var create_gi_draw_call = function()
 	{
@@ -380,7 +396,16 @@ function init() {
         var probeRadianceShader = makeShader('probeRadiance', data);
         probeRadianceDrawCall = app.createDrawCall(probeRadianceShader, fullscreenVertexArray);
 		
-		loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
+		// loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
+		loadObject('t_scene/', 't_scene.obj_2xuv', 't_scene.mtl');
+
+		precomputedLightMap = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
+																	   'magFilter': PicoGL.LINEAR,
+		               												   'mipmaps': true,
+		                                                               'flipY': true});
+
+		texturedByLightmapShader = makeShader('texturedByLightmap', data);
+
 
 	});
 
@@ -752,6 +777,10 @@ function setupProbeDrawCalls(vertexArray, unlitShader, probeVisualizeSHShader, p
 	probeVisualizeRawDrawCall = app.createDrawCall(probeVisualizeRawShader, vertexArray);
 }
 
+function getLightMap() {
+	return precomputedLightMap ? precomputedLightMap : lightMapFramebuffer.colorTextures[0];
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 
 function resize() {
@@ -782,11 +811,16 @@ function render() {
 
         camera.update();
 
-		renderShadowMap();
-		renderLightmap();
-		
+		if (!settings["lightmap_only"]) {
+            renderShadowMap();
+        }
 
-        var lightmap = lightMapFramebuffer.colorTextures[0];
+        if (!precomputedLightMap) {
+            renderLightmap();
+        }
+
+
+        var lightmap = getLightMap();
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
 		if(settings.redraw_global_illumination)
@@ -796,7 +830,12 @@ function render() {
 			render_gi_no_svd();
 		}
 
-		renderScene();
+
+        if (settings["lightmap_only"]) {
+        	renderSceneTexturedByLightMap();
+		} else {
+            renderScene();
+        }
 
 		 var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
 		 renderProbes(viewProjection, getProbeVisualizeModeString()); // 'unlit' | 'sh' | 'raw'
@@ -804,7 +843,7 @@ function render() {
 		 var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
 		 renderEnvironment(inverseViewProjection)
 
-		
+
 
 		// Call this to get a debug render of the passed in texture
 		if(settings.view_lightmap){
@@ -995,6 +1034,26 @@ function renderScene() {
 	}
 }
 
+function renderSceneTexturedByLightMap() {
+
+    app.defaultDrawFramebuffer()
+        .defaultViewport()
+        .depthTest()
+        .depthFunc(PicoGL.LEQUAL)
+        .noBlend()
+        .clear();
+
+    for (var i = 0, len = meshes.length; i < len; ++i) {
+        var mesh = meshes[i];
+        mesh.texturedByLightmapDrawCall
+            .uniform('u_world_from_local', mesh.modelMatrix)
+            .uniform('u_view_from_world', camera.viewMatrix)
+            .uniform('u_projection_from_view', camera.projectionMatrix)
+            .texture('u_light_map', getLightMap())//lightMap)
+            .draw();
+    }
+}
+
 
 function renderProbes(viewProjection, type) {
 
@@ -1027,7 +1086,7 @@ function renderProbes(viewProjection, type) {
                     .uniform('u_projection_from_world', viewProjection)
                     .texture('u_relight_uvs_texture', relight_uvs_texture)
                     .texture('u_relight_dirs_texture', relight_dirs_texture)
-					.texture('u_lightmap', lightMapFramebuffer.colorTextures[0])
+					.texture('u_lightmap', getLightMap())
                     .draw();
             }
             break;

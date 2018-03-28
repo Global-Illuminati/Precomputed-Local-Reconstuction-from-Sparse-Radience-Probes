@@ -33,7 +33,7 @@ ivec2 ceil2(vec2 v) {
 	return ivec2((int)ceil(v.x()), (int)ceil(v.y()));
 }
 
-#define VOXEL_RES 64//128
+#define VOXEL_RES 20//32//64//128
 struct VoxelScene {
 	uint8_t voxels[VOXEL_RES][VOXEL_RES][VOXEL_RES];
 	int voxel_res;
@@ -88,6 +88,13 @@ AABB get_scene_bounds(Mesh mesh) {
 	return ret;
 }
 
+AABB add_padding(AABB bounds, vec3 paddingFactors) {
+	vec3 size = bounds.max - bounds.min;
+	bounds.min -= size.cwiseProduct(paddingFactors)/2.0;
+	bounds.max += size.cwiseProduct(paddingFactors)/2.0;
+	return bounds;
+}
+
 AABB aabb_from_triangle(Triangle &t) {
 	AABB ret;
 	ret.max = t.a.cwiseMax(t.b).cwiseMax(t.c);
@@ -138,6 +145,7 @@ bool is_colliding(ivec3 voxel, VoxelScene *scene, Triangle &triangle) {
 
 void voxelize_scene(Mesh mesh, VoxelScene *data) {
 	data->scene_bounds = get_scene_bounds(mesh);
+	data->scene_bounds = add_padding(data->scene_bounds, vec3(0.1f, 0.05f, 0.1f)); // Add padding to make sure the seeds start outside the mesh
 	data->voxel_res = VOXEL_RES;
 
 	

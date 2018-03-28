@@ -1,5 +1,5 @@
 
-#define RHO_PROBES 15.0f
+#define RHO_PROBES 7.0f//15.0f
 
 #pragma warning(disable:4996)
 #include "stdafx.h"
@@ -308,6 +308,14 @@ void generate_normals(Mesh *mesh) {
 }
 
 
+void resize_thekla_atlas(Atlas_Output_Mesh *light_map_mesh, float rescaleFactor) {
+	for (int i = 0; i < light_map_mesh->vertex_count; i++) {
+		light_map_mesh->vertex_array[i].uv[0] *= rescaleFactor;
+		light_map_mesh->vertex_array[i].uv[1] *= rescaleFactor;
+	}
+}
+
+
 
 // @NOTE: tinyobj loader is modified to avoid reading mtl file 
 // because: hashtable implementation in the file was shit, ie. not at all working, (you can't link list quadratic probing dude...),
@@ -386,6 +394,8 @@ int main(int argc, char * argv[]) {
 	//remove_zeros_from_matrix();
 
 	const char *obj_file_path = "../../assets/sponza/sponza.obj";
+	//const char *obj_file_path = "../../assets/t_scene/t_scene.obj";
+	//const char *obj_file_path = "A:/sphere_ico.obj";
 
 	{
 		size_t data_len = 0;
@@ -495,10 +505,17 @@ int main(int argc, char * argv[]) {
 		printf("Atlas mesh has %d triangles\n", output_mesh->index_count / 3);
 		printf("Produced debug_packer_final.tga\n");
 
+		// Fix varying output sizes so that we get 1024*1024
+		printf("Atlas size: %d * %d\n", output_mesh->atlas_width, output_mesh->atlas_height);
+		float rescaleFactor = 1024.0 / max(output_mesh->atlas_width, output_mesh->atlas_height);
+		printf("Rescale factor: %f\n", rescaleFactor);
+		resize_thekla_atlas(output_mesh, rescaleFactor);
+
 		printf("in:%d\n", attr.num_faces);
 		printf("out:%d\n", output_mesh->index_count);
 
-		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/sponza/sponza.obj_2xuv");
+		//write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/sponza/sponza.obj_2xuv");
+		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/t_scene/t_scene.obj_2xuv");
 	}
 #endif
 
@@ -514,7 +531,6 @@ int main(int argc, char * argv[]) {
 		write_voxel_data(&data, "../voxels.dat");
 
 		get_voxel_centers(probe_voxels, &data, probes);
-
 		reduce_probes(probes, &data, RHO_PROBES / 4);
 		reduce_probes(probes, &data, RHO_PROBES / 2);
 		reduce_probes(probes, &data, RHO_PROBES);
