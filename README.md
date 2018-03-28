@@ -13,9 +13,9 @@ implementation of: https://users.aalto.fi/~silvena4/Projects/RTGI/index.html
 - [x] Render Scene with GI:
 
 ## TODO:
-- [] Add the cos factor again, precomputed normals wrong maybe?
-- [] Make differnt probes have different radius so we can interpolate betweeen more probes.
-- [] Verify correctness against pathtraced version
-- [] optmize, optimize, optmize, must run smoothly
+- [ ] Add the cos factor again, precomputed normals wrong maybe?
+- [ ] Make differnt probes have different radius so we can interpolate betweeen more probes.
+- [ ] Verify correctness against pathtraced version
+- [ ] optmize, optimize, optmize, must run smoothly
 
 
