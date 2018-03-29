@@ -18,9 +18,6 @@ uniform int num_sh_samples;
 void main()
 {
 
-	//@CLEANUP HARDCODED must be sent in!
-	const float inv_radius = 1.0/10.7330141;
-
 	float ack_probe_weight = 0.0;
 	for(int i = 0; i < 8; i++) 
 	{
@@ -30,11 +27,8 @@ void main()
 
 		if(real_distance < sampled_light_dist + 0.01)
 		{
-			float t = real_distance*inv_radius;
-			float weight = 2 * t*t*t - 3 * t*t + 1;
-
-			out_value[i] = vec4(probe_dir,weight);
-			ack_probe_weight += weight;	
+			out_value[i] = vec4(probe_dir,probe_weight[i]);
+			ack_probe_weight += probe_weight[i];	
 		}
 		else
 		{
