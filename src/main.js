@@ -440,6 +440,7 @@ function init() {
 		}
 
 
+
 		texturedByLightmapShader = makeShader('texturedByLightmap', data);
 
 
@@ -637,12 +638,15 @@ function setupDirectionalLightShadowMapFramebuffer(size) {
 	var colorBuffer = app.createTexture2D(size, size, {
 		format: PicoGL.RED,
 		internalFormat: PicoGL.R8,
-		minFilter: PicoGL.NEAREST,
-		magFilter: PicoGL.NEAREST
 	});
 
 	var depthBuffer = app.createTexture2D(size, size, {
-		format: PicoGL.DEPTH_COMPONENT
+		format: PicoGL.DEPTH_COMPONENT,
+		compareMode: PicoGL.COMPARE_REF_TO_TEXTURE,
+		compareFunc: PicoGL.LEQUAL,
+		minFilter: PicoGL.LINEAR,
+		magFilter: PicoGL.LINEAR,
+
 	});
 
 	shadowMapFramebuffer = app.createFramebuffer()
@@ -869,7 +873,7 @@ function render() {
 		}
 
 
-        if (settings["lightmap_only"]) {
+        if (settings.lightmap_only) {
         	renderSceneTexturedByLightMap();
 		} else {
             renderScene();

@@ -20,7 +20,7 @@ in vec4 v_light_space_position;
 uniform sampler2D u_diffuse_map;
 uniform sampler2D u_specular_map;
 uniform sampler2D u_normal_map;
-uniform sampler2D u_shadow_map;
+uniform lowp sampler2DShadow u_shadow_map;
 uniform sampler2D u_light_map;
 
 
@@ -66,7 +66,7 @@ void main()
 	const float bias = 0.0029;
 	vec2 texel_size = vec2(1.0) / vec2(textureSize(u_shadow_map, 0));
 	vec3 light_space = v_light_space_position.xyz / v_light_space_position.w;
-	float visibility = sample_shadow_map_pcf(u_shadow_map, light_space.xy, light_space.z, texel_size, bias);
+	float visibility = sample_shadow_map_pcf(u_shadow_map, light_space, texel_size, bias);
 
 	if (lambertian > 0.0 && visibility > 0.0)
 	{
