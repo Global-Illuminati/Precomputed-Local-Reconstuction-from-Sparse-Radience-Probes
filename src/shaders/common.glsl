@@ -23,35 +23,22 @@ vec2 spherical_from_direction(vec3 direction)
 	return vec2(phi / TWO_PI, theta / PI);
 }
 
-float sample_shadow_map(in sampler2D shadow_map, in vec2 uv, in float comparison_depth, in float bias)
+float sample_shadow_map_pcf(in sampler2DShadow shadow_map, in vec3 shadow_coord, vec2 texel_size, in float bias)
 {
-	float shadow_map_depth = texture(shadow_map, uv).r;
-	return step(comparison_depth, shadow_map_depth + bias);
+	float shadow =0.0;
+	float kernel_size = 3.0;
+
+	float side = (kernel_size-1.0)/2.0;
+	{
+		for (float y = -side; y <= side; y+=1.0)
+			for (float x = -side; x <= side; x+=1.0)
+				shadow += texture(shadow_map, shadow_coord + vec3(x*texel_size.x,y*texel_size.y,-bias));
+		shadow /= (kernel_size*kernel_size);
+	}
+	return shadow;
 }
 
-float sample_shadow_map_pcf(in sampler2D shadow_map, in vec2 uv, in float comparison_depth, vec2 texel_size, in float bias)
-{
-	float tx = texel_size.x;
-	float ty = texel_size.y;
 
-	float visibility = 0.0;
 
-	//
-	// TODO: Do we need a big 9x9 PCF? Maybe smaller is sufficient?
-	//
-
-	visibility += sample_shadow_map(shadow_map, uv + vec2(-tx, -ty), comparison_depth, bias);
-	visibility += sample_shadow_map(shadow_map, uv + vec2(-tx,   0), comparison_depth, bias);
-	visibility += sample_shadow_map(shadow_map, uv + vec2(-tx, +ty), comparison_depth, bias);
-	visibility += sample_shadow_map(shadow_map, uv + vec2(  0, -ty), comparison_depth, bias);
-	visibility += sample_shadow_map(shadow_map, uv + vec2(  0,   0), comparison_depth, bias);
-	visibility += sample_shadow_map(shadow_map, uv + vec2(  0, +ty), comparison_depth, bias);
-	visibility += sample_shadow_map(shadow_map, uv + vec2(+tx, -ty), comparison_depth, bias);
-	visibility += sample_shadow_map(shadow_map, uv + vec2(+tx,   0), comparison_depth, bias);
-	visibility += sample_shadow_map(shadow_map, uv + vec2(+tx, +ty), comparison_depth, bias);
-
-	return visibility / 9.0;
-
-}
 
 #endif // COMMON_GLSL
