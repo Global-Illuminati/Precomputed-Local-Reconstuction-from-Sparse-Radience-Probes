@@ -207,14 +207,17 @@ DepthCubeMap gen_depth_cubemap() {
 	glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 	for (int i = 0; i < 6; i++) {
-		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_R16F,
-			cube_map_size, cube_map_size, 0, GL_RED, GL_FLOAT, NULL);
+		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA32F,
+			cube_map_size, cube_map_size, 0, GL_RGBA, GL_FLOAT, NULL);
 	}
 	DepthCubeMap ret;
 	ret.cube_map = cube_map;
 	return ret;
 }
 
+// needs to be a power of two squared for mipmaping to work nicely
+// ie 1,2,4,16,64,256,1024
+// 16/64/256 is the only remotly reasonable.
 const int sh_samples = 64;
 SHTextures gen_sh_textures() {
 	SHTextures ret;
@@ -296,11 +299,11 @@ void store_matrixi(Eigen::Matrix<int16_t,Eigen::Dynamic,Eigen::Dynamic> mat, cha
 	fwrite(mat.data(), sizeof(short), mat.size(), file);
 	fclose(file);
 }
-#pragma optimize("", on);
+#pragma optimize("", off);
 
 // assumes that the currently bound vao is the entire scene to be rendered.
 std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>probes) {
-	GLuint shadow_map_program = LoadShaders("shadow_map.vert", "shadow_map.frag");
+	static GLuint shadow_map_program = LoadShaders("shadow_map.vert", "shadow_map.frag");
 	glUseProgram(shadow_map_program);
 
 	//hmm we might want to calculate this more accuratly
@@ -320,7 +323,7 @@ std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>p
 	GLuint depth_buffer;
 	glGenRenderbuffers(1, &depth_buffer);
 	glBindRenderbuffer(GL_RENDERBUFFER, depth_buffer);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 1024, 1024);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, cube_map_size, cube_map_size);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_buffer);
 	glViewport(0, 0, cube_map_size, cube_map_size);
 
@@ -336,6 +339,10 @@ std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>p
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, depth.cube_map, 0);
 
 			check_fbo();
+
+			GLuint DrawBuffer = GL_COLOR_ATTACHMENT0;
+
+			glDrawBuffers(1, &DrawBuffer);
 
 			glClearColor(0, 0.5, 0.5, 1);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -361,7 +368,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	//it would improve our accuracy.
 	// oh we have the max radius though. that should be our far plane.
 	// near should be voxel_size * 0.5, right? Interesting, being to close to a surface would reduce accuracy (for points further away)
-	mat4 proj = projection(0.1, 100.0, 1);
+		mat4 proj = projection(0.1, 100.0, 1);
 
 	GLuint matrix_uniform_location = glGetUniformLocation(visibility_shader, "matrix");
 	GLuint probe_pos_uniform_location = glGetUniformLocation(visibility_shader, "probe_pos");
@@ -369,6 +376,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 	GLuint receiver_normal_uniform_location = glGetUniformLocation(visibility_shader, "receiver_normal");
 	GLuint receiver_pos_uniform_location = glGetUniformLocation(visibility_shader, "receiver_pos");
+	GLuint sh_samples_uniform_location = glGetUniformLocation(visibility_shader, "num_sh_samples");
 
 	int num_pbo_bytes = num_probes_per_rec * receivers.size() * sizeof(float) * num_sh_coeffs; 
 	GLuint pbo;
@@ -429,7 +437,10 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 		glUniform1fv(probe_weight_uniform_location, num_probes_per_rec, probe_weights);
 		glUniform3fv(receiver_pos_uniform_location, 1, receiver->position.data());
 		glUniform3fv(receiver_normal_uniform_location, 1, receiver->normal.data());
+		glUniform1i(sh_samples_uniform_location, sh_samples);
 
+
+		
 		// render the visibility 
 		for (int cube_map_index = 0; cube_map_index < 6; cube_map_index++) {
 			for (int i = 0; i < num_probes_per_rec; i++) {
@@ -492,7 +503,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 				glGenerateMipmap(GL_TEXTURE_2D);
 
 				// output to pbo
-				glGetTexImage(GL_TEXTURE_2D, 6, GL_RGBA, GL_FLOAT, (void *)(sizeof(float)*(num_written_shs)));
+				glGetTexImage(GL_TEXTURE_2D, std::log2(num_sh_coeffs), GL_RGBA, GL_FLOAT, (void *)(sizeof(float)*(num_written_shs)));
 				num_written_shs += 4;
 			}
 
@@ -504,7 +515,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 					glGenerateMipmap(GL_TEXTURE_2D);
 
 					// output to pbo
-					glGetTexImage(GL_TEXTURE_2D, 6, GL_RGBA, GL_FLOAT, (void *)(sizeof(float)*(num_written_shs)));
+					glGetTexImage(GL_TEXTURE_2D, std::log2(num_sh_coeffs), GL_RGBA, GL_FLOAT, (void *)(sizeof(float)*(num_written_shs)));
 					num_written_shs += 4;
 				}
 			}
@@ -644,7 +655,7 @@ bool init_gl() {
 		return false;
 	}
 
-	glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
+	//glfwSetInputMode(window, GLFW_STICKY_KEYS, GL_TRUE);
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 	glfwPollEvents();
@@ -658,6 +669,8 @@ bool init_gl() {
 
 #include <queue>
 
+
+#pragma optmize("", off)
 int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Mesh *mesh) {
 
 	if (!init_gl()) {
@@ -676,7 +689,6 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 	printf("generating depth information for probes...\n");
 
 	auto depth_maps = render_probe_depth(mesh->num_indices, probe_locations);
-	DepthCubeMap point_light_shadows = depth_maps[0];
 
 	std::vector<ReceiverData *> receivers;
 	receivers.reserve(recs.size());
@@ -743,6 +755,13 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 		min_num_visible_probes = min(min_num_visible_probes, receiver->num_visible_probes);
 
 		if (receiver->num_visible_probes == 0)++num_with_zero_visible;
+
+		//@CLEANUP this mustn't be here! 
+		// 		   we should make probably
+		//         have individual probe radiuses to get better
+		// 		   results also we probably need to have more overlap 
+		// this will cause discontinuities...
+		receiver->num_visible_probes = 8;
 	}
 	printf("avg_num_visble probes: %f\n", avg_num_visble_probes);
 	printf("min_num_visble probes: %d\n", min_num_visible_probes);
@@ -766,8 +785,12 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 	check_gl_error();
 	glUseProgram(program);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glDisable(GL_BLEND);
+	glEnable(GL_DEPTH_TEST);
+	
 	vec3 camera_pos = vec3(0, 6.0, 0.01);
 	glViewport(0, 0, 1024, 768);
+	static int active_probe=0;
 	do {
 		float camera_speed = 0.05;
 		// trying to break tree.js's record in worst camera 
@@ -785,26 +808,70 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 			camera_pos.y() += camera_speed;
 		}
 
+		static bool down_r = false;
+		if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
+			if(!down_r) ++active_probe;
+			if (active_probe == probe_locations.size()) active_probe = 0;
+			down_r = true;
+		} else {
+			down_r = false;
+		}
+		
+		static bool down_f = false;
+		if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS) {
+			if (!down_f) --active_probe;
+			if (active_probe < 0) active_probe = probe_locations.size() - 1;
+			down_f = true;
+		} else {
+			down_f = false;
+		}
+		static int active_view = 0;
+		static bool down_t = false;
+		if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS) {
+			if (!down_t) ++active_view;
+			if (active_view == 6) active_view = 0;
+			down_t = true;
+		} else {
+			down_t = false;
+		}
+
+		static bool down_g = false;
+		if (glfwGetKey(window, GLFW_KEY_G) == GLFW_PRESS) {
+			if (!down_g) --active_view;
+			if (active_view < 0) active_view = 5;
+			down_g = true;
+		} else {
+			down_g = false;
+		}
+
+
+
+
 
 		mat4 view = look_at(camera_pos, vec3(0, 0, 0), vec3(0, 1, 0));
 
 
 		mat4 proj = projection(0.1, 100.0, 768 / 1024.0);
 		mat4 mat = proj * view;
+		#if 0
+		mat4 mat = proj * look_at(probe_locations[active_probe], 
+			probe_locations[active_probe] + cube_map_dir[active_view], cube_map_up[active_view]);
+		#endif
 
 
 		static GLuint matrix_location = glGetUniformLocation(program, "matrix");
+
 		static GLuint light_location = glGetUniformLocation(program, "light_pos");
 
 		check_gl_error();
 		glUniformMatrix4fv(matrix_location, 1, false, mat.data());
 		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_CUBE_MAP, point_light_shadows.cube_map);
+		glBindTexture(GL_TEXTURE_CUBE_MAP, depth_maps[active_probe].cube_map);
 		check_gl_error();
 
-		glUniform3fv(light_location, 1, probe_loc.data());
+		glUniform3fv(light_location, 1, probe_locations[active_probe].data());
 
-		glClearColor(0, 0.5, 0.5, 1);
+		glClearColor(1.0, 0.5, 0.5, 1);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_INT, (void *)0);
 
@@ -888,3 +955,4 @@ return 0;
 
 
 
+#pragma optmize("", on)

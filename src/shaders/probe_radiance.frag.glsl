@@ -22,6 +22,7 @@ void main()
     int probe_index = int(gl_FragCoord.y);
 
     vec4 summed_light = vec4(0.0,0.0,0.0,1.0);
+    float num_hit_rays = 1.0;
     for (int ray_index = 0; ray_index < num_rays; ray_index++) {
         float sh_coeff_for_ray = texelFetch(u_relight_shs_texture, ivec2(sh_index, ray_index), 0).r;
 
@@ -30,12 +31,15 @@ void main()
 
         if (relight_ray_uv.x == -1.0) {
             //lookedup_light = vec4(1.0, 0.0, 1.0, 1.0); // Make missed rays magenta-colored
-            lookedup_light = vec4(0.0, 0.0, 0.0, 1.0); // Make missed rays black 
+            //lookedup_light = vec4(0.0, 0.0, 0.0, 1.0); // Make missed rays black 
         }
-
-        summed_light += sh_coeff_for_ray * lookedup_light;
+        else
+        {
+            num_hit_rays += 1.0;
+            summed_light += sh_coeff_for_ray * lookedup_light;
+        }
     }
-    vec4 resulting_sh_coeff = summed_light * 4.0*PI / float(num_rays);
+    vec4 resulting_sh_coeff = summed_light * 4.0*PI / num_hit_rays;
     o_color = vec4(resulting_sh_coeff.rgb, 1.0);
 }
 
