@@ -2,6 +2,8 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
+var T_SCENE = true;
+
 var stats;
 var gui;
 
@@ -13,7 +15,7 @@ var settings = {
 	view_gi_lightmap:false,
 	view_lightmap:false,
 	redraw_global_illumination:false,
-	lightmap_only: true
+	lightmap_only: false
 };
 
 var sceneSettings = {
@@ -51,6 +53,7 @@ var directionalLight;
 var meshes = [];
 
 var probeDrawCall;
+var hideProbes = false;
 var probeVisualizeSHDrawCall;
 var probeVisualizeRawDrawCall;
 var probeLocations = [
@@ -62,7 +65,7 @@ var probeLocations = [
 var probeVisualizeMode = 'raw';
 var probeVisualizeUnlit = true;
 
-var precomputedLightMap;
+var bakedDirect;
 
 var num_probes;
 var num_relight_rays;
@@ -241,17 +244,29 @@ function loadObject(directory, objFilename, mtlFilename, modelMatrix) {
 
 				var vertexArray = createVertexArrayFromMeshInfo(object);
 
-				var drawCall = app.createDrawCall(defaultShader, vertexArray)
-				.uniformBlock('SceneUniforms', sceneUniforms)
-				.texture('u_diffuse_map', loadTexture(diffuseMap))
-				.texture('u_specular_map', loadTexture(specularMap))
-				.texture('u_normal_map', loadTexture(normalMap));
+				var drawCall, lightMappingDrawCall;
+                if (bakedDirect) {
+                    drawCall = app.createDrawCall(defaultShader, vertexArray)
+                        .uniformBlock('SceneUniforms', sceneUniforms)
+                        .texture('u_diffuse_map', loadTexture(diffuseMap));
 
-				var lightMappingDrawCall = app.createDrawCall(lightMapShader, vertexArray)
-				.uniformBlock('SceneUniforms', sceneUniforms)
-				.texture('u_diffuse_map', loadTexture(diffuseMap))
-				.texture('u_specular_map', loadTexture(specularMap))
-				.texture('u_normal_map', loadTexture(normalMap));
+                    lightMappingDrawCall = app.createDrawCall(lightMapShader, vertexArray)
+                        .uniformBlock('SceneUniforms', sceneUniforms)
+                        .texture('u_diffuse_map', loadTexture(diffuseMap));
+                } else {
+                    drawCall = app.createDrawCall(defaultShader, vertexArray)
+                        .uniformBlock('SceneUniforms', sceneUniforms)
+                        .texture('u_diffuse_map', loadTexture(diffuseMap))
+                        .texture('u_specular_map', loadTexture(specularMap))
+                        .texture('u_normal_map', loadTexture(normalMap));
+
+                    lightMappingDrawCall = app.createDrawCall(lightMapShader, vertexArray)
+                        .uniformBlock('SceneUniforms', sceneUniforms)
+                        .texture('u_diffuse_map', loadTexture(diffuseMap))
+                        .texture('u_specular_map', loadTexture(specularMap))
+                        .texture('u_normal_map', loadTexture(normalMap));
+                }
+
 				
 				var shadowMappingDrawCall = app.createDrawCall(shadowMapShader, vertexArray);
 
@@ -315,18 +330,32 @@ function init() {
 	//////////////////////////////////////
 	// Camera stuff
 
-	// var cameraPos = vec3.fromValues(-15, 3, 0);
-	// var cameraRot = quat.fromEuler(quat.create(), 15, -90, 0);
+	var cameraPos, cameraRot;
 
-	var cameraPos = vec3.fromValues(0.0, 17.6906, 0.0);
-	var cameraRot = quat.fromEuler(quat.create(), -90, 0,0);
+	if (T_SCENE) {
+        cameraPos = vec3.fromValues(0.0, 17.6906, 0.0);
+        cameraRot = quat.fromEuler(quat.create(), -90, 0,0);
+    } else {
+        cameraPos = vec3.fromValues(-15, 3, 0);
+        cameraRot = quat.fromEuler(quat.create(), 15, -90, 0);
+
+	}
+
 
 	camera = new Camera(cameraPos, cameraRot);
 
 	//////////////////////////////////////
 	// Scene setup
 
-	directionalLight = new DirectionalLight();
+	if (T_SCENE) {
+        bakedDirect =         loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
+            'magFilter': PicoGL.LINEAR,
+            'mipmaps': true,
+            'flipY': true});
+    }
+
+
+    directionalLight = new DirectionalLight();
 	setupDirectionalLightShadowMapFramebuffer(shadowMapSize);
 	setupLightmapFramebuffer(lightMapSize);
 	setupGILightmapFramebuffer(lightMapSize);
@@ -339,11 +368,13 @@ function init() {
 	shaderLoader.addShaderFile('mesh_attributes.glsl');
 	shaderLoader.addShaderProgram('unlit', 'unlit.vert.glsl', 'unlit.frag.glsl');
 	shaderLoader.addShaderProgram('default', 'default.vert.glsl', 'default.frag.glsl');
-	shaderLoader.addShaderProgram('default_lm', 'default_lm.vert.glsl', 'default_lm.frag.glsl');
+    shaderLoader.addShaderProgram('default_lm', 'default_lm.vert.glsl', 'default_lm.frag.glsl');
+    shaderLoader.addShaderProgram('default_lm_baked_direct', 'default_lm.vert.glsl', 'default_lm_baked_direct.frag.glsl');
 	shaderLoader.addShaderProgram('environment', 'environment.vert.glsl', 'environment.frag.glsl');
 	shaderLoader.addShaderProgram('textureBlit', 'screen_space.vert.glsl', 'texture_blit.frag.glsl');
 	shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
-	shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
+    shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
+    shaderLoader.addShaderProgram('lightMapping_baked_direct', 'direct_lightmap.vert.glsl', 'default_lm_baked_direct.frag.glsl');
 	shaderLoader.addShaderProgram('calc_gi', 'calc_gi.vert.glsl', 'calc_gi.frag.glsl');
 	shaderLoader.addShaderProgram('calc_gi_no_svd', 'calc_gi_no_svd.vert.glsl', 'calc_gi_no_svd.frag.glsl');
 	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
@@ -383,10 +414,16 @@ function init() {
         var probeVisualizeRawShader = makeShader('probeVisualizeRaw', data);
         setupProbeDrawCalls(probeVertexArray, unlitShader, probeVisualizeSHShader, probeVisualizeRawShader);
 
-		defaultShader = makeShader('default_lm', data);
+        if (bakedDirect) {
+            defaultShader = makeShader('default_lm_baked_direct', data);
+            lightMapShader = makeShader('lightMapping_baked_direct', data);
+		} else {
+            defaultShader = makeShader('default_lm', data);
+            lightMapShader = makeShader('lightMapping', data);
+        }
+
 		shadowMapShader = makeShader('shadowMapping', data);
-		lightMapShader = makeShader('lightMapping', data);
-		
+
 		var transformPCProbesShader = makeShader('transform_pc_probes', data);
 		calcGIShader = makeShader('calc_gi_no_svd', data);
 		create_gi_draw_call();
@@ -395,14 +432,13 @@ function init() {
 
         var probeRadianceShader = makeShader('probeRadiance', data);
         probeRadianceDrawCall = app.createDrawCall(probeRadianceShader, fullscreenVertexArray);
-		
-		// loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
-		loadObject('t_scene/', 't_scene.obj_2xuv', 't_scene.mtl');
 
-		precomputedLightMap = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
-																	   'magFilter': PicoGL.LINEAR,
-		               												   'mipmaps': true,
-		                                                               'flipY': true});
+        if (T_SCENE) {
+            loadObject('t_scene/', 't_scene.obj_2xuv', 't_scene.mtl');
+		} else {
+            loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
+		}
+
 
 		texturedByLightmapShader = makeShader('texturedByLightmap', data);
 
@@ -496,6 +532,7 @@ function init() {
 function initProbeToggleControls() {
     window.addEventListener('keydown', function(e) {
         if (e.keyCode === 80) { /* p */
+            hideProbes = false;
             if (probeVisualizeUnlit) {
                 probeVisualizeUnlit = false;
             } else {
@@ -506,7 +543,12 @@ function initProbeToggleControls() {
             }
         }
         if (e.keyCode === 85) { /* u */
-            probeVisualizeUnlit = true;
+			if (probeVisualizeUnlit && !hideProbes) {
+				hideProbes = true;
+			} else {
+                probeVisualizeUnlit = true;
+                hideProbes = false;
+            }
         }
     });
 }
@@ -777,10 +819,6 @@ function setupProbeDrawCalls(vertexArray, unlitShader, probeVisualizeSHShader, p
 	probeVisualizeRawDrawCall = app.createDrawCall(probeVisualizeRawShader, vertexArray);
 }
 
-function getLightMap() {
-	return precomputedLightMap ? precomputedLightMap : lightMapFramebuffer.colorTextures[0];
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 function resize() {
@@ -811,16 +849,16 @@ function render() {
 
         camera.update();
 
-		if (!settings["lightmap_only"]) {
+		if (!bakedDirect) {
             renderShadowMap();
         }
 
-        if (!precomputedLightMap) {
-            renderLightmap();
-        }
+
+		renderLightmap();
 
 
-        var lightmap = getLightMap();
+
+        var lightmap = lightMapFramebuffer.colorTextures[0];
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
 		if(settings.redraw_global_illumination)
@@ -837,11 +875,13 @@ function render() {
             renderScene();
         }
 
-		 var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
-		 renderProbes(viewProjection, getProbeVisualizeModeString()); // 'unlit' | 'sh' | 'raw'
+		var viewProjection = mat4.mul(mat4.create(), camera.projectionMatrix, camera.viewMatrix);
+		if (!hideProbes) {
+            renderProbes(viewProjection, getProbeVisualizeModeString()); // 'unlit' | 'sh' | 'raw'
+        }
 
-		 var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
-		 renderEnvironment(inverseViewProjection)
+		var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
+		renderEnvironment(inverseViewProjection)
 
 
 
@@ -939,15 +979,25 @@ function renderLightmap() {
 
 	for (var i = 0, len = meshes.length; i < len; ++i) {
 		var mesh = meshes[i];
-		mesh.lightmapDrawCall
-		.uniform('u_world_from_local', mesh.modelMatrix)
-		.uniform('u_view_from_world', camera.viewMatrix)
-		.uniform('u_dir_light_color', directionalLight.color)
-		.uniform('u_dir_light_view_direction', dirLightViewDirection)
-		.uniform('u_light_projection_from_world', lightViewProjection)
-		.texture('u_shadow_map', shadowMap)
-		.texture('u_light_map', lightMap)
-		.draw();
+		if (bakedDirect) {
+            mesh.lightmapDrawCall
+                .uniform('u_world_from_local', mesh.modelMatrix)
+                .uniform('u_view_from_world', camera.viewMatrix)
+                .uniform('u_light_projection_from_world', lightViewProjection)
+                .texture('u_light_map', lightMap)
+                .texture('u_baked_direct', bakedDirect)
+                .draw();
+		} else {
+            mesh.lightmapDrawCall
+                .uniform('u_world_from_local', mesh.modelMatrix)
+                .uniform('u_view_from_world', camera.viewMatrix)
+                .uniform('u_dir_light_color', directionalLight.color)
+                .uniform('u_dir_light_view_direction', dirLightViewDirection)
+                .uniform('u_light_projection_from_world', lightViewProjection)
+                .texture('u_shadow_map', shadowMap)
+                .texture('u_light_map', lightMap)
+                .draw();
+        }
 	}
 }
 
@@ -1021,16 +1071,28 @@ function renderScene() {
 
 	for (var i = 0, len = meshes.length; i < len; ++i) {
 		var mesh = meshes[i];
-		mesh.drawCall
-		.uniform('u_world_from_local', mesh.modelMatrix)
-		.uniform('u_view_from_world', camera.viewMatrix)
-		.uniform('u_projection_from_view', camera.projectionMatrix)
-		.uniform('u_dir_light_color', directionalLight.color)
-		.uniform('u_dir_light_view_direction', dirLightViewDirection)
-		.uniform('u_light_projection_from_world', lightViewProjection)
-		.texture('u_shadow_map', shadowMap)
-		.texture('u_light_map', lightMap)
-		.draw();
+        if (bakedDirect) {
+            mesh.drawCall
+                .uniform('u_world_from_local', mesh.modelMatrix)
+                .uniform('u_view_from_world', camera.viewMatrix)
+                .uniform('u_projection_from_view', camera.projectionMatrix)
+                .uniform('u_light_projection_from_world', lightViewProjection)
+                .texture('u_light_map', lightMap)
+                .texture('u_baked_direct', bakedDirect)
+                .draw();
+        } else {
+            mesh.drawCall
+                .uniform('u_world_from_local', mesh.modelMatrix)
+                .uniform('u_view_from_world', camera.viewMatrix)
+                .uniform('u_projection_from_view', camera.projectionMatrix)
+                .uniform('u_dir_light_color', directionalLight.color)
+                .uniform('u_dir_light_view_direction', dirLightViewDirection)
+                .uniform('u_light_projection_from_world', lightViewProjection)
+                .texture('u_shadow_map', shadowMap)
+                .texture('u_light_map', lightMap)
+                .draw();
+		}
+
 	}
 }
 
@@ -1049,7 +1111,7 @@ function renderSceneTexturedByLightMap() {
             .uniform('u_world_from_local', mesh.modelMatrix)
             .uniform('u_view_from_world', camera.viewMatrix)
             .uniform('u_projection_from_view', camera.projectionMatrix)
-            .texture('u_light_map', getLightMap())//lightMap)
+            .texture('u_light_map', lightMapFramebuffer.colorTextures[0])
             .draw();
     }
 }
@@ -1086,7 +1148,7 @@ function renderProbes(viewProjection, type) {
                     .uniform('u_projection_from_world', viewProjection)
                     .texture('u_relight_uvs_texture', relight_uvs_texture)
                     .texture('u_relight_dirs_texture', relight_dirs_texture)
-					.texture('u_lightmap', getLightMap())
+					.texture('u_lightmap', lightMapFramebuffer.colorTextures[0])
                     .draw();
             }
             break;

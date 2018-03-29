@@ -38,5 +38,5 @@ void main()
 			ret += a * texelFetch(probes_sh_coeffs,ivec2(j,probe_index),0).xyz;
 		}
 	}
-	o_light = vec4(ret,1)*0.6;
+	o_light = vec4(ret,1)*1.0;//*0.6;
 }

@@ -33,7 +33,13 @@ ivec2 ceil2(vec2 v) {
 	return ivec2((int)ceil(v.x()), (int)ceil(v.y()));
 }
 
-#define VOXEL_RES 20//32//64//128
+#ifdef T_SCENE
+#define VOXEL_RES 20
+#else
+#define VOXEL_RES 32
+#endif
+//#define VOXEL_RES 64 //20//32//64//128
+
 struct VoxelScene {
 	uint8_t voxels[VOXEL_RES][VOXEL_RES][VOXEL_RES];
 	int voxel_res;
@@ -144,8 +150,13 @@ bool is_colliding(ivec3 voxel, VoxelScene *scene, Triangle &triangle) {
 }
 
 void voxelize_scene(Mesh mesh, VoxelScene *data) {
+
 	data->scene_bounds = get_scene_bounds(mesh);
+
+#ifdef T_SCENE
 	data->scene_bounds = add_padding(data->scene_bounds, vec3(0.1f, 0.05f, 0.1f)); // Add padding to make sure the seeds start outside the mesh
+#endif	
+	
 	data->voxel_res = VOXEL_RES;
 
 	

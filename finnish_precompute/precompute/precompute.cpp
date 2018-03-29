@@ -1,10 +1,14 @@
 
-#define RHO_PROBES 7.0f//15.0f
+#define T_SCENE
 
+#ifdef T_SCENE
+#define RHO_PROBES 7.0f //15.0f //7.0f//15.0f
+#else
+#define RHO_PROBES 15.0f
+#endif
 #pragma warning(disable:4996)
 #include "stdafx.h"
 #include "string.h"
-
 
 #include "thekla_atlas.h"
 using namespace Thekla;
@@ -393,8 +397,12 @@ int main(int argc, char * argv[]) {
 
 	//remove_zeros_from_matrix();
 
+#ifdef T_SCENE
+	const char *obj_file_path = "../../assets/t_scene/t_scene.obj"; 
+#else
 	const char *obj_file_path = "../../assets/sponza/sponza.obj";
-	//const char *obj_file_path = "../../assets/t_scene/t_scene.obj";
+#endif
+	//
 	//const char *obj_file_path = "A:/sphere_ico.obj";
 
 	{
@@ -507,15 +515,22 @@ int main(int argc, char * argv[]) {
 
 		// Fix varying output sizes so that we get 1024*1024
 		printf("Atlas size: %d * %d\n", output_mesh->atlas_width, output_mesh->atlas_height);
-		float rescaleFactor = 1024.0 / max(output_mesh->atlas_width, output_mesh->atlas_height);
-		printf("Rescale factor: %f\n", rescaleFactor);
-		resize_thekla_atlas(output_mesh, rescaleFactor);
+		printf("No rescaling\n");
+		//float rescaleFactor = 1024.0 / max(output_mesh->atlas_width, output_mesh->atlas_height);
+		//printf("Rescale factor: %f\n", rescaleFactor);
+		//resize_thekla_atlas(output_mesh, rescaleFactor);
 
 		printf("in:%d\n", attr.num_faces);
 		printf("out:%d\n", output_mesh->index_count);
 
-		//write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/sponza/sponza.obj_2xuv");
-		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/t_scene/t_scene.obj_2xuv");
+#ifdef T_SCENE
+		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/t_scene/t_scene.obj_2xuv"); 
+#else
+		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/sponza/sponza.obj_2xuv");
+#endif
+
+		
+		//
 	}
 #endif
 
@@ -531,9 +546,15 @@ int main(int argc, char * argv[]) {
 		write_voxel_data(&data, "../voxels.dat");
 
 		get_voxel_centers(probe_voxels, &data, probes);
+
+#ifdef T_SCENE
+		reduce_probes(probes, &data, RHO_PROBES);
+#else
 		reduce_probes(probes, &data, RHO_PROBES / 4);
 		reduce_probes(probes, &data, RHO_PROBES / 2);
 		reduce_probes(probes, &data, RHO_PROBES);
+#endif
+		
 #endif	
 
 		write_probe_data(probes, "../../assets/precompute/probes.dat");
@@ -579,7 +600,7 @@ int main(int argc, char * argv[]) {
 		}
 		fclose(f);
 	}
-
+	
 	{ // compute local transport
 		visibility(receivers, probes, &m);
 	}
