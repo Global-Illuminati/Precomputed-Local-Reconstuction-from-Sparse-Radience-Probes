@@ -30,7 +30,6 @@ struct ReceiverData {
 		int index;
 		float weight;
 		vec3 position;
-		float sh_coeffs[num_sh_coeffs];
 		DepthCubeMap depth_cube_map;
 	} visible_probes[num_probes_per_rec];
 	int num_visible_probes;
@@ -216,9 +215,7 @@ DepthCubeMap gen_depth_cubemap() {
 }
 
 // needs to be a power of two squared for mipmaping to work nicely
-// ie 1,2,4,16,64,256,1024
-// 16/64/256 is the only remotly reasonable.
-const int sh_samples = 64;
+const int sh_samples = 16;
 SHTextures gen_sh_textures() {
 	SHTextures ret;
 	glGenTextures(8, ret.textures);
@@ -344,7 +341,7 @@ std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>p
 
 			glDrawBuffers(1, &DrawBuffer);
 
-			glClearColor(0, 0.5, 0.5, 1);
+			glClearColor(0, 0.0, 0.0, 1);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, (void *)0);
 		}
@@ -392,7 +389,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	GLuint depth_buffer;
 	glGenRenderbuffers(1, &depth_buffer);
 	glBindRenderbuffer(GL_RENDERBUFFER, depth_buffer);
-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, 1024, 1024);
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, sh_samples, sh_samples);
 	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth_buffer);
 	glViewport(0, 0, sh_samples, sh_samples);
 	glEnable(GL_BLEND);
@@ -457,16 +454,18 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 			glDrawBuffers(num_probes_per_rec, DrawBuffers);
 
-			//check_fbo();
+			check_fbo();
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 			glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, (void *)0);
 		}
 
-			glDisable(GL_DEPTH_TEST);
+		glDisable(GL_DEPTH_TEST);
+		glUseProgram(spherical_harmonics_shader);
+		for (int i = 0; i < 8; i++)
+			glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, shs.textures[i], 0);
 		// Output spherical harmonics, two probes per iteration.
 		for (int i = 0; i < num_probes_per_rec; i += 2) {
 			if (receiver->num_visible_probes <= i) break;
-			glUseProgram(spherical_harmonics_shader);
 			glClear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 			for (int cube_map_index = 0; cube_map_index < 6; cube_map_index++) {
 				glActiveTexture(GL_TEXTURE0);
@@ -475,14 +474,10 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 				glActiveTexture(GL_TEXTURE1);
 				glBindTexture(GL_TEXTURE_2D, visibility[cube_map_index].textures[i + 1]);
 
-				for (int j = 0; j < 8; j++)
-					glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + j, shs.textures[j], 0);
-
 				glDrawBuffers(8, DrawBuffers);
 				
-				//check_fbo();
-
-				// draws a full screen triangle with (vertices overridden by vertex shader)
+				check_fbo();
+				// draws a full screen triangle with vertices overridden by vertex shader
 				glDrawArrays(GL_TRIANGLES, 0, 3);
 			}
 			// @Robustness
@@ -503,7 +498,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 				glGenerateMipmap(GL_TEXTURE_2D);
 
 				// output to pbo
-				glGetTexImage(GL_TEXTURE_2D, std::log2(num_sh_coeffs), GL_RGBA, GL_FLOAT, (void *)(sizeof(float)*(num_written_shs)));
+				glGetTexImage(GL_TEXTURE_2D, std::log2(sh_samples), GL_RGBA, GL_FLOAT, (void *)(sizeof(float)*(num_written_shs)));
 				num_written_shs += 4;
 			}
 
@@ -515,13 +510,10 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 					glGenerateMipmap(GL_TEXTURE_2D);
 
 					// output to pbo
-					glGetTexImage(GL_TEXTURE_2D, std::log2(num_sh_coeffs), GL_RGBA, GL_FLOAT, (void *)(sizeof(float)*(num_written_shs)));
+					glGetTexImage(GL_TEXTURE_2D, std::log2(sh_samples), GL_RGBA, GL_FLOAT, (void *)(sizeof(float)*(num_written_shs)));
 					num_written_shs += 4;
 				}
 			}
-
-
-
 		}
 
 		static int num_done = 0;
@@ -720,8 +712,11 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 			closest_probes.pop();
 		}
 		float dist = (probe_locations[closest_probes.top()] - rec_data->position).norm();
+		
+		//@fix when num probes is less than num_probes_per_rec
 		closest_probes.pop();
-		radius = min(radius, dist);
+		//radius = min(radius, dist);
+		float radius = dist;
 		int i = num_probes_per_rec-1;
 		while (!closest_probes.empty()) {
 			int probe_index = closest_probes.top();
@@ -731,12 +726,15 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 			rec_data->visible_probes[i].position = probe;
 			rec_data->visible_probes[i].index = probe_index;
 			rec_data->visible_probes[i].depth_cube_map = depth_maps[probe_index];
+			rec_data->visible_probes[i].weight = w(dist / radius);
 			i--;
 		}
+		rec_data->num_visible_probes = num_probes_per_rec;
 
 		receivers.push_back(rec_data);
 	}
 
+#if 0
 	float avg_num_visble_probes = 0.0;
 	int min_num_visible_probes = num_probes_per_rec;
 	int max_num_visible_probes = 0;
@@ -755,19 +753,14 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 		min_num_visible_probes = min(min_num_visible_probes, receiver->num_visible_probes);
 
 		if (receiver->num_visible_probes == 0)++num_with_zero_visible;
-
-		//@CLEANUP this mustn't be here! 
-		// 		   we should make probably
-		//         have individual probe radiuses to get better
-		// 		   results also we probably need to have more overlap 
-		// this will cause discontinuities...
-		receiver->num_visible_probes = 8;
 	}
 	printf("avg_num_visble probes: %f\n", avg_num_visble_probes);
 	printf("min_num_visble probes: %d\n", min_num_visible_probes);
 	printf("max_num_visble probes: %d\n", max_num_visible_probes);
 	printf("perc none visible : %f\n", num_with_zero_visible / (float)receivers.size());
+#endif
 
+	
 
 
 
