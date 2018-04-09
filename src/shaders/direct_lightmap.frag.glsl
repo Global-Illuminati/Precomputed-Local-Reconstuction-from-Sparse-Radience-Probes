@@ -56,7 +56,7 @@ void main()
 	//////////////////////////////////////////////////////////
 	// ambient
 	//vec3 color = vec3(0);
-	vec3 color  = texture(u_light_map,v_lightmap_coord).xyz*diffuse;
+	vec3 color  = texture(u_light_map,v_lightmap_coord).xyz*diffuse/3.14;
 	//////////////////////////////////////////////////////////
 	// directional light
 
@@ -70,16 +70,18 @@ void main()
 
 	if (lambertian > 0.0 && visibility > 0.0)
 	{
-		vec3 wh = normalize(wi + wo);
 
 		// diffuse
 		color += visibility * diffuse * lambertian * u_dir_light_color;
+/*
+		vec3 wh = normalize(wi + wo);
 
 		// specular
 		float specular_angle = saturate(dot(N, wh));
 		float specular_power = pow(2.0, 13.0 * shininess); // (fake glossiness from the specular map)
 		float specular = pow(specular_angle, specular_power);
 		color += visibility * shininess * specular * u_dir_light_color;
+*/
 	}
 
 	o_color = vec4(color,1.0);

@@ -2,7 +2,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-var T_SCENE = true;
+var T_SCENE = false;
 
 var stats;
 var gui;
@@ -45,6 +45,8 @@ var shadowMapFramebuffer;
 var lightMapSize = 1024;
 var lightMapFramebuffer;
 
+var giLightMapSize = 1024;
+
 var probeRadianceFramebuffer;
 var probeRadianceDrawCall;
 
@@ -56,12 +58,7 @@ var probeDrawCall;
 var hideProbes = false;
 var probeVisualizeSHDrawCall;
 var probeVisualizeRawDrawCall;
-var probeLocations = [
-	-10, 4,  0,
-	+10, 4,  0,
-	-10, 14, 0,
-	+10, 14, 0
-]
+var probeLocations;
 var probeVisualizeMode = 'raw';
 var probeVisualizeUnlit = true;
 
@@ -155,7 +152,7 @@ function makeTextureFromRelightUVs(relight_uvs) {
     options['format'] = PicoGL.RG;
     options['internalFormat'] = PicoGL.RG32F;
     options['type'] = PicoGL.FLOAT;
-    image_data = new Float32Array(relight_uvs.reduce( (a,b) => a.concat(b)).map( x => x==-1?-1:x/lightMapSize));
+    image_data = new Float32Array(relight_uvs.reduce( (a,b) => a.concat(b)).map( x => x==-1?-1:x/giLightMapSize));
     return app.createTexture2D(image_data, num_relight_rays, num_probes, options);
 }
 
@@ -204,16 +201,16 @@ function makeTexturefromFloatArr(data) {
 	options['minFilter'] = PicoGL.NEAREST;
 	options['magFilter'] = PicoGL.NEAREST;
 	options['mipmaps'] = false;
-	options['format'] = PicoGL.RED;
-	options['internalFormat'] = PicoGL.R32F;
+	options['format'] = PicoGL.RGBA;
+	options['internalFormat'] = PicoGL.RGBA16F;
 	options['type'] = PicoGL.FLOAT;
 
 	// @ROBUSTNESS, spec requires support of only 1024x1024 but if the exist on my laptop maybe it's fine?
 	
 	var max_size = 1<<14;
 
-	var aligned_length = (data.length + max_size-1) & ~(max_size-1);
-	image_data = new Float32Array(aligned_length);
+	var aligned_length = (data.length/4 + max_size-1) & ~(max_size-1);
+	image_data = new Float32Array(aligned_length*4);
 	image_data.set(data);
 	return app.createTexture2D(image_data, max_size, aligned_length >> 14,  options);
 }
@@ -346,19 +343,17 @@ function init() {
 
 	//////////////////////////////////////
 	// Scene setup
-
 	if (T_SCENE) {
-        bakedDirect =         loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
+        bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
             'magFilter': PicoGL.LINEAR,
             'mipmaps': true,
             'flipY': true});
     }
 
-
-    directionalLight = new DirectionalLight();
+	directionalLight = new DirectionalLight();
 	setupDirectionalLightShadowMapFramebuffer(shadowMapSize);
 	setupLightmapFramebuffer(lightMapSize);
-	setupGILightmapFramebuffer(lightMapSize);
+	setupGILightmapFramebuffer(giLightMapSize);
 
 	setupSceneUniforms();
 
@@ -426,7 +421,7 @@ function init() {
 
 		var transformPCProbesShader = makeShader('transform_pc_probes', data);
 		calcGIShader = makeShader('calc_gi_no_svd', data);
-		create_gi_draw_call();
+		create_gi_draw_call();	
 		
 		transformPCProbesDrawCall = app.createDrawCall(transformPCProbesShader,fullscreenVertexArray);
 
@@ -457,10 +452,13 @@ function init() {
  		}
 	}
 
+	var precompute_folder = 'assets/' + (T_SCENE ? 't_scene' : 'sponza') + '/precompute/';
+
+
     var suffix = ""; //"";
-    var relight_uvs_dir = "assets/precompute/relight_uvs" + suffix + ".dat";
-    var relight_shs_dir = "assets/precompute/relight_shs" + suffix + ".dat";
-    var relight_directions_dir = "assets/precompute/relight_directions" + suffix + ".dat";
+    var relight_uvs_dir = precompute_folder + "relight_uvs" + suffix + ".dat";
+    var relight_shs_dir = precompute_folder + "relight_shs" + suffix + ".dat";
+    var relight_directions_dir = precompute_folder+"relight_directions" + suffix + ".dat";
 
 
     dat_loader.load(relight_uvs_dir,
@@ -494,7 +492,7 @@ function init() {
 
 
 
-	dat_loader.load("assets/precompute/probes.dat", function(value) {
+	dat_loader.load(precompute_folder + "probes.dat", function(value) {
 		probeLocations = value.reduce( (a,b) => a.concat(b) );
 	});
 
@@ -511,19 +509,19 @@ function init() {
 		console.log('max_size', u_texture.gl.getParameter(u_texture.gl.MAX_TEXTURE_SIZE));
 	}, Float32Array);
 */
-	matrix_loader.load("assets/precompute/receiver_px_map.imatrix", function(px_map_mat){
+	matrix_loader.load( precompute_folder +  "receiver_px_map.imatrix", function(px_map_mat){
 		px_map = px_map_mat;
 		create_gi_draw_call();
 	}, Int32Array);
 
-	matrix_loader.load("assets/precompute/probe_indices.imatrix", function(probe_indices_mat){
+	matrix_loader.load(precompute_folder +  "probe_indices.imatrix", function(probe_indices_mat){
 		probe_indices=probe_indices_mat;
 		create_gi_draw_call();
 	}, Int16Array);
 
 
 	
-	matrix_loader.load("assets/precompute/full_nz.matrix", function(full_mat){
+	matrix_loader.load(precompute_folder +  "full_nz.matrix", function(full_mat){
 		full_texture = makeTexturefromFloatArr(full_mat.col_major_data);
 	}, Float32Array);
 	
@@ -676,13 +674,12 @@ function setupTransformPCFramebuffer(width, height)
 	
 }
 
-
-var GIlightMapFramebuffer = false;
+var gilightMapFramebuffer = false;
 
 function setupGILightmapFramebuffer(size) {
 
 	var colorBuffer = app.createTexture2D(size, size, {
-		internalFormat: PicoGL.RGBA8,
+		internalFormat: PicoGL.RGBA16F,
 		minFilter: PicoGL.LINEAR,
 		magFilter: PicoGL.LINEAR,
 		//wrapS:gl.CLAMP_TO_BORDER,
@@ -705,9 +702,8 @@ function setupGILightmapFramebuffer(size) {
 
 
 function setupLightmapFramebuffer(size) {
-
 	var colorBuffer = app.createTexture2D(size, size, {
-		internalFormat: PicoGL.RGBA8,
+		internalFormat: PicoGL.RGBA16F,
 		minFilter: PicoGL.LINEAR,
 		magFilter: PicoGL.LINEAR,
 		//wrapS:gl.CLAMP_TO_BORDER,
@@ -732,7 +728,7 @@ function setupLightmapFramebuffer(size) {
 function setupProbeRadianceFramebuffer() {
 
     var colorBuffer = app.createTexture2D(num_sh_coefficients, num_probes, {
-        internalFormat: PicoGL.RGBA8,
+        internalFormat: PicoGL.RGBA16F,
         minFilter: PicoGL.NEAREST,
         magFilter: PicoGL.NEAREST,
 	});
@@ -801,7 +797,7 @@ function createVertexArrayFromMeshInfo(meshInfo) {
 function setupProbeDrawCalls(vertexArray, unlitShader, probeVisualizeSHShader, probeVisualizeRawShader) {
 
 	// We need at least one (x,y,z) pair to render any probes
-	if (probeLocations.length <= 3) {
+	if (!probeLocations || probeLocations.length <= 3) {
 		return;
 	}
 
@@ -858,10 +854,6 @@ function render() {
         }
 
 
-		renderLightmap();
-
-
-
         var lightmap = lightMapFramebuffer.colorTextures[0];
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
@@ -869,6 +861,7 @@ function render() {
 		{
 			//render_probe_pc_transfrom();
 			//render_gi();
+			renderLightmap();
 			render_gi_no_svd();
 		}
 
@@ -887,22 +880,15 @@ function render() {
 		var inverseViewProjection = mat4.invert(mat4.create(), viewProjection);
 		renderEnvironment(inverseViewProjection)
 
-
-
 		// Call this to get a debug render of the passed in texture
 		if(settings.view_lightmap){
 			renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
 		}
 		
-        if (probeRadianceFramebuffer) {
-			 // renderTextureToScreen(probeRadianceFramebuffer.colorTextures[0])
-		}
 		if(gilightMapFramebuffer && settings.view_gi_lightmap)
 		{
 			renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
 		}
-		// if(full_texture) renderTextureToScreen(full_texture);
-
 	}
 	picoTimer.end();
 	stats.end();
@@ -1029,7 +1015,7 @@ function render_gi()
 	if(transformPCFramebuffer && u_texture && gilightMapFramebuffer)
 	{
 		app.drawFramebuffer(gilightMapFramebuffer)
-		.viewport(0, 0, lightMapSize, lightMapSize)
+		.viewport(0, 0, giLightMapSize, giLightMapSize)
 		.noDepthTest()
 		.noBlend()
 		.clearColor(0,0,0)
@@ -1047,7 +1033,7 @@ function render_gi_no_svd()
 	if(probeRadianceFramebuffer && full_texture && gilightMapFramebuffer)
 	{
 		app.drawFramebuffer(gilightMapFramebuffer)
-		.viewport(0, 0, lightMapSize, lightMapSize)
+		.viewport(0, 0, giLightMapSize, giLightMapSize)
 		.noDepthTest()
 		.noBlend()
 		.clearColor(0,0,0)
@@ -1101,7 +1087,7 @@ function renderScene() {
 }
 
 function renderSceneTexturedByLightMap() {
-
+	if(!gilightMapFramebuffer)return;
     app.defaultDrawFramebuffer()
         .defaultViewport()
         .depthTest()
@@ -1115,7 +1101,7 @@ function renderSceneTexturedByLightMap() {
             .uniform('u_world_from_local', mesh.modelMatrix)
             .uniform('u_view_from_world', camera.viewMatrix)
             .uniform('u_projection_from_view', camera.projectionMatrix)
-            .texture('u_light_map', lightMapFramebuffer.colorTextures[0])
+            .texture('u_light_map', gilightMapFramebuffer.colorTextures[0])
             .draw();
     }
 }

@@ -20,10 +20,10 @@ struct iAABB2 {
 };
 
 ivec3 floor(vec3 v) {
-	return ivec3((int)v.x(),(int)v.y(),(int)v.z() );
+	return ivec3((int)v.x(), (int)v.y(), (int)v.z());
 }
 ivec3 ceil(vec3 v) {
-	return ivec3((int)ceil(v.x()),(int)ceil(v.y()) ,(int)ceil(v.z()));
+	return ivec3((int)ceil(v.x()), (int)ceil(v.y()), (int)ceil(v.z()));
 }
 
 ivec2 floor2(vec2 v) {
@@ -82,8 +82,8 @@ struct Triangle2 {
 AABB get_scene_bounds(Mesh mesh) {
 
 	AABB ret;
-	ret.min = vec3( FLT_MAX, FLT_MAX ,FLT_MAX );
-	ret.max = vec3( -FLT_MAX, -FLT_MAX, -FLT_MAX );
+	ret.min = vec3(FLT_MAX, FLT_MAX, FLT_MAX);
+	ret.max = vec3(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
 	for (int i = 0; i < mesh.num_indices; i++) {
 		vec3 v = mesh.verts[mesh.indices[i]];
@@ -96,8 +96,8 @@ AABB get_scene_bounds(Mesh mesh) {
 
 AABB add_padding(AABB bounds, vec3 paddingFactors) {
 	vec3 size = bounds.max - bounds.min;
-	bounds.min -= size.cwiseProduct(paddingFactors)/2.0;
-	bounds.max += size.cwiseProduct(paddingFactors)/2.0;
+	bounds.min -= size.cwiseProduct(paddingFactors) / 2.0;
+	bounds.max += size.cwiseProduct(paddingFactors) / 2.0;
 	return bounds;
 }
 
@@ -115,6 +115,12 @@ AABB2 aabb_from_triangle(Triangle2 &t) {
 	return ret;
 }
 
+
+vec3 transform_to_voxelspace(vec3 voxel, VoxelScene *data) {
+	vec3 voxel_scene_size = data->scene_bounds.max - data->scene_bounds.min;
+	return (voxel - data->scene_bounds.min).cwiseQuotient(voxel_scene_size)  * data->voxel_res;
+}
+
 iAABB transform_to_voxelspace(AABB bounding_box, VoxelScene *data) {
 	vec3 voxel_scene_size = data->scene_bounds.max - data->scene_bounds.min;
 	iAABB ret;
@@ -128,7 +134,7 @@ iAABB transform_to_voxelspace(AABB bounding_box, VoxelScene *data) {
 vec3 get_voxel_center(ivec3 voxel, VoxelScene *scene) {
 	vec3 voxel_scene_size = scene->scene_bounds.max - scene->scene_bounds.min;
 	vec3 voxel_size = voxel_scene_size / (float)scene->voxel_res;
-	return vec3(voxel.x(), voxel.y(), voxel.z()).cwiseProduct(voxel_size) + scene->scene_bounds.min + voxel_size / 2.0;
+	return voxel.cast<float>().cwiseProduct(voxel_size) + scene->scene_bounds.min + voxel_size / 2.0;
 }
 
 
@@ -143,10 +149,17 @@ bool is_colliding(ivec3 voxel, VoxelScene *scene, Triangle &triangle) {
 	vec3 voxel_scene_size = scene->scene_bounds.max - scene->scene_bounds.min;
 	vec3 voxel_size = voxel_scene_size / scene->voxel_res;
 
-	vec3 center = vec3(voxel.x(), voxel.y(), voxel.z()).cwiseProduct(voxel_size) + scene->scene_bounds.min + voxel_size/2.0;
-	vec3 half_voxel_size = voxel_size*0.5;
-	int size = sizeof(Triangle);
-	return TriBoxOverlap(center.data(), half_voxel_size.data(), (float (*)[3])&triangle); // danger_zone..
+	vec3 center = get_voxel_center(voxel, scene);
+	vec3 half_voxel_size = voxel_size * 0.5;
+	return TriBoxOverlap(center.data(), half_voxel_size.data(), (float(*)[3])&triangle); // danger_zone..
+}
+
+bool voxel_is_empty(ivec3 voxel, VoxelScene *scene) {
+	if (voxel.x() < 0 || voxel.x() >= scene->voxel_res) return true;
+	if (voxel.y() < 0 || voxel.y() >= scene->voxel_res) return true;
+	if (voxel.z() < 0 || voxel.z() >= scene->voxel_res) return true;
+
+	return scene->voxels[voxel.x()][voxel.y()][voxel.z()] == 2;
 }
 
 void voxelize_scene(Mesh mesh, VoxelScene *data) {
@@ -156,10 +169,10 @@ void voxelize_scene(Mesh mesh, VoxelScene *data) {
 #ifdef T_SCENE
 	data->scene_bounds = add_padding(data->scene_bounds, vec3(0.1f, 0.05f, 0.1f)); // Add padding to make sure the seeds start outside the mesh
 #endif	
-	
+
 	data->voxel_res = VOXEL_RES;
 
-	
+
 	int num_set_voxels = 0;
 	for (int i = 0; i < mesh.num_indices / 3; i++) {
 		vec3 a = mesh.verts[mesh.indices[i * 3 + 0]];
@@ -175,8 +188,8 @@ void voxelize_scene(Mesh mesh, VoxelScene *data) {
 		ivec3 max = voxel_bounds.max;
 		for (int x = min.x(); x < max.x(); x++) for (int y = min.y(); y < max.y(); y++) for (int z = min.z(); z < max.z(); z++) {
 			if (data->voxels[x][y][z])continue;
-			ivec3 voxel = ivec3( x,y,z );
-			if (is_colliding(voxel,data,t)) {
+			ivec3 voxel = ivec3(x, y, z);
+			if (is_colliding(voxel, data, t)) {
 				data->voxels[x][y][z] = 1;
 				++num_set_voxels;
 			}
@@ -209,7 +222,7 @@ void flood_fill_voxel_scene(VoxelScene *scene, std::vector<ivec3> &candidate_pro
 	to_process.reserve(scene->voxel_res*scene->voxel_res * 6);
 	int process_index = 0;
 
-	
+
 	// push all faces of voxel scene as start verts
 	for (int x = 0; x < scene->voxel_res; x++) {
 		for (int y = 0; y < scene->voxel_res; y++) {
@@ -223,9 +236,9 @@ void flood_fill_voxel_scene(VoxelScene *scene, std::vector<ivec3> &candidate_pro
 	}
 
 
-	ivec3 neighbours[6] = { ivec3( 1,0,0 ),ivec3( -1,0,0 ),
-							ivec3( 0,1,0 ),ivec3( 0,-1,0 ),
-							ivec3( 0,0,1 ),ivec3( 0,0,-1 )};
+	ivec3 neighbours[6] = { ivec3(1,0,0),ivec3(-1,0,0),
+							ivec3(0,1,0),ivec3(0,-1,0),
+							ivec3(0,0,1),ivec3(0,0,-1) };
 
 	while (to_process.size() > 0) {
 		ivec3 current = to_process.back();

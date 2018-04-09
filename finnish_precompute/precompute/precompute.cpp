@@ -1,10 +1,12 @@
 
-#define T_SCENE
+//#define T_SCENE
 
 #ifdef T_SCENE
 #define RHO_PROBES 7.0f //15.0f //7.0f//15.0f
+#define PRECOMP_ASSET_FOLDER "../../assets/t_scene/precompute/"
 #else
 #define RHO_PROBES 15.0f
+#define PRECOMP_ASSET_FOLDER "../../assets/sponza/precompute/"
 #endif
 #pragma warning(disable:4996)
 #include "stdafx.h"
@@ -162,7 +164,6 @@ iAABB2 transform_to_pixel_space(AABB2 bounding_box, Atlas_Output_Mesh *mesh) {
 	ivec2 atlas_size = ivec2(mesh->atlas_width, mesh->atlas_height);
 	ivec2 fl = floor2(bounding_box.min);
 	ivec2 cl = ceil2(bounding_box.max);
-
 	ret.min = fl.cwiseMax(0);
 	ret.max = cl.cwiseMin(atlas_size);
 
@@ -191,19 +192,63 @@ struct Receiver {
 	ivec2 px;
 };
 
+vec3 apply_baryc(vec3 b, Triangle &t) {
+	return t.a *b.x() + t.b * b.y() + t.c * b.z();
+}
+
+#pragma optimize("", off)
+vec3 project_onto_triangle(vec3 bc, Triangle &tri) {
+
+	int num_positives = 0;
+	int indices_of_positives[3];
+	for (int i = 0; i < 3; i++) {
+		if (bc(i) > 0) {
+			indices_of_positives[num_positives++] = i;
+		}
+	}
+
+	vec3 ret = vec3(0, 0, 0);
+	if (num_positives == 1) {
+		//point tri[non_zeros[0]] is closest
+		ret(indices_of_positives[0]) = 1.0;
+		return ret;
+	} else if (num_positives == 2) {
+		// edge between tri[ia] tri[ib] is closest  
+		int ia = indices_of_positives[0];
+		int ib = indices_of_positives[1];
+		vec3 segment = (tri.points[ib] - tri.points[ia]);
+
+		bc(ia) -= 1.0; // modify bary centric coordinates to be for p-tri[ia]
+
+		vec3 pa = apply_baryc(bc, tri);
+		float t = segment.dot(pa) / segment.squaredNorm();
+		ret(ia) = 1.0f - t;
+		ret(ib) = t;
+		return ret;
+	}
+
+	//inside tri or invalid bccs
+	return bc;
+}
+
+ivec3 round_to_ivec3(vec3 p) {
+	return (p + vec3(0.5, 0.5, 0.5)).cast<int>();
+}
+
 #include <set>;
-void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, std::vector<Receiver> &receivers) {
+
+void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, std::vector<Receiver> &receivers, VoxelScene *voxel_scene) {
 
 	printf("computing receiver locations\n");
 	static uint8_t pixel_is_processed[1024][1024];
 
 #if 0
 	std::set<Receiver, std::function<bool(Receiver, Receiver)>>
-	theset(std::function<bool(Receiver, Receiver) >>
-		vec3 da = probe_locations[ia] - receiver.pos;
-		vec3 db = probe_locations[ib] - receiver.pos;
-		return (da.dot(da) < db.dot(db));
-	});
+		theset(std::function<bool(Receiver, Receiver) >>
+			vec3 da = probe_locations[ia] - receiver.pos;
+	vec3 db = probe_locations[ib] - receiver.pos;
+	return (da.dot(da) < db.dot(db));
+});
 
 #endif
 	// @Performance Runtime:
@@ -213,10 +258,10 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 	//  it will cause the receivers to be more spatially coherent.
 	//  might have a slight benefit.
 
-	auto cmp = [](Receiver a, Receiver b) { 
-		return 
-			 (a.px.x() <  b.px.x()) || 
-			((a.px.x() == b.px.x()) && a.px.y() < b.px.y()); 
+	auto cmp = [](Receiver a, Receiver b) {
+		return
+			(a.px.x() < b.px.x()) ||
+			((a.px.x() == b.px.x()) && a.px.y() < b.px.y());
 	};
 	std::set<Receiver, decltype(cmp)> receiver_set(cmp);
 
@@ -230,13 +275,8 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 		int xref_b = light_map_mesh->vertex_array[new_b_idx].xref;
 		int xref_c = light_map_mesh->vertex_array[new_c_idx].xref;
 
-		vec3 vert_a = mesh.verts[xref_a];
-		vec3 vert_b = mesh.verts[xref_b];
-		vec3 vert_c = mesh.verts[xref_c];
-
-		vec3 norm_a = mesh.normals[xref_a];
-		vec3 norm_b = mesh.normals[xref_b];
-		vec3 norm_c = mesh.normals[xref_c];
+		Triangle vert_tri = { mesh.verts[xref_a], mesh.verts[xref_b], mesh.verts[xref_c] };
+		Triangle norm_tri = { mesh.normals[xref_a], mesh.normals[xref_b], mesh.normals[xref_c] };
 
 		vec2 uv_a = Eigen::Map<vec2>(light_map_mesh->vertex_array[new_a_idx].uv);
 		vec2 uv_b = Eigen::Map<vec2>(light_map_mesh->vertex_array[new_b_idx].uv);
@@ -251,15 +291,16 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 		for (int x = min.x(); x < max.x(); x++) for (int y = min.y(); y < max.y(); y++) {
 			if (pixel_is_processed[x][y])continue;
 			ivec2 pixel = ivec2(x, y);
+
 			vec2 px_center = get_pixel_center(pixel);
-			vec3 box_center = vec3(px_center.x(), px_center.y(),0.0f);
-			vec3 half_size = vec3(1.0f,1.0f,1.0f);
-			Triangle tri = { 
+			vec3 box_center = vec3(px_center.x(), px_center.y(), 0.0f);
+			vec3 half_size = vec3(1.0f, 1.0f, 1.0f);
+			Triangle tri = {
 				vec3(uv_tri.a.x(),uv_tri.a.y(),0.0f),
 				vec3(uv_tri.b.x(),uv_tri.b.y(),0.0f),
 				vec3(uv_tri.c.x(),uv_tri.c.y(),0.0f)
 			};
-			
+
 
 
 			// @Performance 
@@ -267,15 +308,54 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 			// although we only need the 2D case
 			// not performance critial though so meh.
 			bool triangle_inside_px_influence = TriBoxOverlap(box_center.data(), half_size.data(), (float(*)[3])&tri);
+			vec3 baryc = compute_barycentric_coords(get_pixel_center(pixel), uv_tri);
+			bool px_center_inside_tri = (baryc.x() > 0 && baryc.y() > 0 && baryc.z() > 0);
 
 			if (triangle_inside_px_influence) {
-				vec3 baryc = compute_barycentric_coords(get_pixel_center(pixel), uv_tri);
-				bool px_center_inside_tri = (baryc.x() > 0 && baryc.y() > 0 && baryc.z() > 0);
 				pixel_is_processed[x][y] = px_center_inside_tri;
 
-				vec3 pos = vert_a * baryc.x() + vert_b * baryc.y() + vert_c * baryc.z();
-				vec3 norm = norm_a * baryc.x() + norm_b * baryc.y() + norm_c * baryc.z();
-				receiver_set.insert({ pos,norm,pixel });
+				// will get bad interpolations...
+				// but so will most other things as well...
+
+				//baryc = project_onto_triangle(baryc, vert_tri);
+
+
+				// ugly hack scaling
+				//vec3 bc = vec3(1.0f / 3.0f, 1.0f / 3.0f, 1.0f / 3.0f);
+				//baryc = bc + (baryc - bc)*0.90;
+
+
+
+				vec3 pos = apply_baryc(baryc, vert_tri);
+#if 0
+				// haaaaaacky way to try to offset the receivers so that they're not
+				// inside an object. or very close to inside of an object. 
+				 
+				vec3 unit = vec3(1, 1, 1);
+				ivec3 voxel_pos = round_to_ivec3(transform_to_voxelspace(pos, voxel_scene));
+				ivec3 min = voxel_pos + ivec3(2, 2, 2);
+				ivec3 max = voxel_pos - ivec3(2, 2, 2);
+
+				float min_dist_sq = FLT_MAX;
+				bool is_set = false;
+				for (int x = min.x(); x <= max.x(); x++) 
+				for (int y = min.y(); y <= max.y(); y++) 
+				for (int z = min.z(); z <= max.z(); z++) {
+					if (voxel_is_empty(ivec3(x,y,z),voxel_scene)) {
+						vec3 vx_pos = get_voxel_center(ivec3(x, y, z), voxel_scene);
+						float dist_sq = (vx_pos - pos).squaredNorm();
+						if (dist_sq < min_dist_sq) {
+							min_dist_sq = dist_sq;
+							pos = vx_pos;
+						}
+						is_set = true;
+					}
+				}
+#endif
+
+				vec3 norm = apply_baryc(baryc, norm_tri);
+				norm.normalize();
+				receiver_set.insert({ pos, norm, pixel });
 			}
 		}
 	}
@@ -284,6 +364,8 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 
 	printf("got %d receivers\n", receivers.size());
 }
+
+#pragma optimize("", on)
 
 void generate_normals(Mesh *mesh) {
 
@@ -359,16 +441,16 @@ Eigen::MatrixXf load_matrix(char *file) {
 // atleast keep until we verify that the direct export works.
 void remove_zeros_from_matrix() {
 	auto full = load_matrix("../../assets/precompute/full_matrix.matrix");
-	Eigen::MatrixXf mat(8*16, full.cols());
-	Eigen::Matrix<int16_t,Eigen::Dynamic,Eigen::Dynamic> probe_indices(8, full.cols());
+	Eigen::MatrixXf mat(8 * 16, full.cols());
+	Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic> probe_indices(8, full.cols());
 	probe_indices.fill(-1);
 
 	for (int r = 0; r < full.cols(); r++) {
 		int num_visible = 0;
 		for (int p = 0; p < full.rows() / 16; p++) {
-			bool probe_visible=false;
+			bool probe_visible = false;
 			for (int sh = 0; sh < 16; sh++) {
-				if (full(p * 16 + sh,r) != 0.0f) {
+				if (full(p * 16 + sh, r) != 0.0f) {
 					probe_visible = true;
 					break;
 				}
@@ -398,7 +480,7 @@ int main(int argc, char * argv[]) {
 	//remove_zeros_from_matrix();
 
 #ifdef T_SCENE
-	const char *obj_file_path = "../../assets/t_scene/t_scene.obj"; 
+	const char *obj_file_path = "../../assets/t_scene/t_scene.obj";
 #else
 	const char *obj_file_path = "../../assets/sponza/sponza.obj";
 #endif
@@ -498,7 +580,7 @@ int main(int argc, char * argv[]) {
 
 
 		// Avoid brute force packing, since it can be unusably slow in some situations.
-		atlas_options.packer_options.witness.packing_quality = 0.1;
+		atlas_options.packer_options.witness.packing_quality = 0;
 		atlas_options.packer_options.witness.conservative = false;
 		atlas_options.packer_options.witness.texel_area = 2; // approx the size we want 
 		atlas_options.packer_options.witness.block_align = false;
@@ -524,12 +606,12 @@ int main(int argc, char * argv[]) {
 		printf("out:%d\n", output_mesh->index_count);
 
 #ifdef T_SCENE
-		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/t_scene/t_scene.obj_2xuv"); 
+		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/t_scene/t_scene.obj_2xuv");
 #else
 		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/sponza/sponza.obj_2xuv");
 #endif
 
-		
+
 		//
 	}
 #endif
@@ -554,11 +636,11 @@ int main(int argc, char * argv[]) {
 		reduce_probes(probes, &data, RHO_PROBES / 2);
 		reduce_probes(probes, &data, RHO_PROBES);
 #endif
-		
+
 #endif	
 
-		write_probe_data(probes, "../../assets/precompute/probes.dat");
-		printf("Probes saved to ../../assets/precompute/probes.dat");
+		write_probe_data(probes, PRECOMP_ASSET_FOLDER "probes.dat");
+		printf("Probes saved to " PRECOMP_ASSET_FOLDER "probes.dat" );
 	}
 
 	std::vector<ProbeData> probe_data(probes.size());
@@ -568,7 +650,7 @@ int main(int argc, char * argv[]) {
 
 		printf("\nGenerating relight ray directions...\n");
 		generate_relight_ray_directions_spaced(relight_ray_directions, RELIGHT_RAYS_PER_PROBE);
-		write_probe_data(relight_ray_directions, "../../assets/precompute/relight_directions.dat");
+		write_probe_data(relight_ray_directions, PRECOMP_ASSET_FOLDER "relight_directions.dat");
 		printf("\nPrecomputing relight uvs...\n");
 
 		precompute_lightmap_uvs(probe_data, probes, relight_ray_directions, output_mesh, m);
@@ -579,8 +661,8 @@ int main(int argc, char * argv[]) {
 			}
 		}
 
-		write_relight_uvs(probe_data, "../../assets/precompute/relight_uvs.dat");
-		write_relight_shs(relight_ray_directions, "../../assets/precompute/relight_shs.dat");
+		write_relight_uvs(probe_data, PRECOMP_ASSET_FOLDER "relight_uvs.dat");
+		write_relight_shs(relight_ray_directions, PRECOMP_ASSET_FOLDER "relight_shs.dat");
 	}
 #endif
 
@@ -588,8 +670,8 @@ int main(int argc, char * argv[]) {
 	std::vector<Receiver>receivers;
 
 	{ // generate receivers
-		compute_receiver_locations(output_mesh, m, receivers);
-		FILE *f = fopen("../../assets/precompute/receiver_px_map.imatrix", "wb");
+		compute_receiver_locations(output_mesh, m, receivers, &data);
+		FILE *f = fopen(PRECOMP_ASSET_FOLDER "receiver_px_map.imatrix", "wb");
 		int num_recs = receivers.size();
 		int num_comps = 2;
 
@@ -600,7 +682,8 @@ int main(int argc, char * argv[]) {
 		}
 		fclose(f);
 	}
-	
+
+
 	{ // compute local transport
 		visibility(receivers, probes, &m);
 	}

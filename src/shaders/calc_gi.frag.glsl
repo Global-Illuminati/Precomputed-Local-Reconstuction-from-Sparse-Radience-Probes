@@ -17,5 +17,5 @@ void main()
 		ivec2 rec_loc = ivec2(offset & mask, offset>>log2_tex_size);
 		ret += texelFetch(rec_sh_coeffs,rec_loc,0).x * texelFetch(pc_sh_coeffs,ivec2(i,0),0).xyz;
 	}
-	o_light = vec4(ret*10.0	,1);
+	o_light = vec4(ret*5.0	,1);
 }

@@ -27,19 +27,13 @@ void main()
         float sh_coeff_for_ray = texelFetch(u_relight_shs_texture, ivec2(sh_index, ray_index), 0).r;
 
         vec2 relight_ray_uv = texelFetch(u_relight_uvs_texture, ivec2(ray_index, probe_index), 0).rg;
-        vec4 lookedup_light = texture(u_lightmap, relight_ray_uv);
-
-        if (relight_ray_uv.x == -1.0) {
-            //lookedup_light = vec4(1.0, 0.0, 1.0, 1.0); // Make missed rays magenta-colored
-            //lookedup_light = vec4(0.0, 0.0, 0.0, 1.0); // Make missed rays black 
-        }
-        else
-        {
+        //@perf avoid branch, texture u_lightmap should be black if we set the texture to not repeat.
+        if (relight_ray_uv.x != -1.0) {
             num_hit_rays += 1.0;
-            summed_light += sh_coeff_for_ray * lookedup_light;
+            summed_light += sh_coeff_for_ray * texture(u_lightmap, relight_ray_uv);
         }
     }
-    vec4 resulting_sh_coeff = summed_light * 4.0*PI / num_hit_rays;
+    vec4 resulting_sh_coeff = summed_light * 4.0*PI / float(num_rays);
     o_color = vec4(resulting_sh_coeff.rgb, 1.0);
 }
 

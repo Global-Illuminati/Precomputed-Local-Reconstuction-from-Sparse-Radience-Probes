@@ -17,6 +17,6 @@ layout(location = 0) out vec4 o_color;
 void main()
 {
     vec2 coords = v_lightmap_coord;// /100.0 * 1024.0;
-	o_color = texture(u_light_map, coords);
+	o_color = vec4(texture(u_light_map, coords).rgb*2.0,1.0);
 
 }

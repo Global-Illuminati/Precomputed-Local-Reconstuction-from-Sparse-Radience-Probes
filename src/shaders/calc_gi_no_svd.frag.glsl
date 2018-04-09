@@ -31,12 +31,18 @@ void main()
 	for(int i = 0; i< max_num_probes_per_receiver;i++){
 		int probe_index = probe_indices_expanded[i];
 		if(probe_index == -1) break;
-		for(int j=0;j<num_shs;j++){
-			int coeff_index = (receiver_index*max_num_probes_per_receiver*num_shs + i*num_shs+j);
+		for(int j=0;j<4;j++){
+			int coeff_index = (receiver_index*max_num_probes_per_receiver*4 + i*4+j);
 			ivec2 rec_loc = ivec2(coeff_index & mask, coeff_index>>log2_tex_size);
-			float a = texelFetch(rec_sh_coeffs,rec_loc,0).r;
-			ret += a * texelFetch(probes_sh_coeffs,ivec2(j,probe_index),0).xyz;
+			vec4 a = texelFetch(rec_sh_coeffs,rec_loc,0);
+			ret += a.x * texelFetch(probes_sh_coeffs,ivec2(j*4+0,probe_index),0).xyz;
+			ret += a.y * texelFetch(probes_sh_coeffs,ivec2(j*4+1,probe_index),0).xyz;
+			ret += a.z * texelFetch(probes_sh_coeffs,ivec2(j*4+2,probe_index),0).xyz;
+			ret += a.w * texelFetch(probes_sh_coeffs,ivec2(j*4+3,probe_index),0).xyz;
 		}
 	}
-	o_light = vec4(ret,1)*1.0;//*0.6;
+	o_light = vec4(ret,1);
+
+
+
 }

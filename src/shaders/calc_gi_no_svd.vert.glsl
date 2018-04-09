@@ -11,7 +11,7 @@ void main()
 {
 	probe_indices = a_probe_indices;
 	receiver_index = gl_VertexID;
-	gl_Position = vec4((vec2(a_px_map)+vec2(0.5))*(2.0/1024.0)-1.0,0,1);
+	gl_Position = vec4((vec2(a_px_map)+0.5)*(2.0/1024.0)-1.0,0,1);
 	gl_PointSize = 1.0/1024.0;
 
 }

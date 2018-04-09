@@ -12,6 +12,7 @@ GLFWwindow* window;
 // is 8 enough? on average 10 or what ever
 const int num_probes_per_rec = 8;
 const int num_sh_coeffs = 16;
+const int sh_samples = 64;
 
 struct 	DepthCubeMap {
 	GLuint cube_map;
@@ -206,8 +207,8 @@ DepthCubeMap gen_depth_cubemap() {
 	glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 	for (int i = 0; i < 6; i++) {
-		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA32F,
-			cube_map_size, cube_map_size, 0, GL_RGBA, GL_FLOAT, NULL);
+		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA16F,
+			cube_map_size, cube_map_size, 0, GL_RGBA, GL_BYTE, NULL);
 	}
 	DepthCubeMap ret;
 	ret.cube_map = cube_map;
@@ -215,7 +216,6 @@ DepthCubeMap gen_depth_cubemap() {
 }
 
 // needs to be a power of two squared for mipmaping to work nicely
-const int sh_samples = 16;
 SHTextures gen_sh_textures() {
 	SHTextures ret;
 	glGenTextures(8, ret.textures);
@@ -355,7 +355,7 @@ std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>p
 }
 #include <chrono>
 // assumes that the currently bound vao is the entire scene to be rendered.
-void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std::vector<DepthCubeMap> depth_maps, int num_probes) {
+void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std::vector<DepthCubeMap> depth_maps, int num_probes) {
 
 	GLuint visibility_shader = LoadShaders("shader.vert", "visibility.frag");
 	GLuint spherical_harmonics_shader = LoadShaders("full_screen.vert", "spherical_harmonics.frag");
@@ -365,7 +365,9 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 	//it would improve our accuracy.
 	// oh we have the max radius though. that should be our far plane.
 	// near should be voxel_size * 0.5, right? Interesting, being to close to a surface would reduce accuracy (for points further away)
-		mat4 proj = projection(0.1, 100.0, 1);
+	
+	float near_plane = 0.01;
+	mat4 proj = projection(near_plane, 100.0, 1);
 
 	GLuint matrix_uniform_location = glGetUniformLocation(visibility_shader, "matrix");
 	GLuint probe_pos_uniform_location = glGetUniformLocation(visibility_shader, "probe_pos");
@@ -406,10 +408,11 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 	auto start_time = std::chrono::high_resolution_clock::now();
 	check_gl_error();
+	glDisable(GL_CULL_FACE);
 
 	int num_written_shs = 0;
 	for (int receiver_index = 0; receiver_index < receivers.size(); receiver_index++) {
-		ReceiverData *receiver = receivers[receiver_index];
+		ReceiverData *receiver = &receivers[receiver_index];
 		glClearColor(0, 0, 0, 0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glEnable(GL_DEPTH_TEST);
@@ -444,15 +447,20 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 				glActiveTexture(GL_TEXTURE0 + i);
 				glBindTexture(GL_TEXTURE_CUBE_MAP, receiver->visible_probes[i].depth_cube_map.cube_map);
 			}
+			
+			// offset the recevier position by the location to avoid culling neccesary geometry with the near plane
+			// still might be problematic though for positons parallel to the plane 
+			// doesn't work nicely
+			vec3 rec_pos = receiver->position;// -cube_map_dir[cube_map_index] * near_plane*0.9;
 
-			mat4 mat = proj * look_at(receiver->position, receiver->position + cube_map_dir[cube_map_index], cube_map_up[cube_map_index]);
+			mat4 mat = proj * look_at(rec_pos, rec_pos + cube_map_dir[cube_map_index], cube_map_up[cube_map_index]);
 			glUniformMatrix4fv(matrix_uniform_location, 1, false, mat.data());
 
 			for (int i = 0; i < num_probes_per_rec; i++) {
 				glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, visibility[cube_map_index].textures[i], 0);
 			}
 
-			glDrawBuffers(num_probes_per_rec, DrawBuffers);
+			glDrawBuffers(receiver->num_visible_probes, DrawBuffers);
 
 			check_fbo();
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -537,22 +545,21 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 	int num_handled_coefficients = 0;
 	for (int receiver_index = 0; receiver_index < receivers.size(); receiver_index++) {
-		for (int probe_index = 0; probe_index < receivers[receiver_index]->num_visible_probes; probe_index++) {
+		for (int probe_index = 0; probe_index < receivers[receiver_index].num_visible_probes; probe_index++) {
 			for (int i = 0; i < num_coeffs_per_probe; i++) {
-				float coeff = sh_coeffs[num_handled_coefficients++]*(1/6.0f);
+				float coeff = sh_coeffs[num_handled_coefficients++];
 				if (std::isnan(coeff)) {
 					__debugbreak();
 					coeff = 0.0f;
 				}
 				full_mat_nz(probe_index*num_sh_coeffs + i, receiver_index) = coeff;
-
 				coefficients.push_back({
 					receiver_index,
-					receivers[receiver_index]->visible_probes[probe_index].index * num_coeffs_per_probe + i,
+					receivers[receiver_index].visible_probes[probe_index].index * num_coeffs_per_probe + i,
 					coeff
 				});
 			}
-			probe_indices(probe_index, receiver_index) = receivers[receiver_index]->visible_probes[probe_index].index;
+			probe_indices(probe_index, receiver_index) = receivers[receiver_index].visible_probes[probe_index].index;
 		}
 	}
 
@@ -561,22 +568,22 @@ void render_receivers(int num_indices, std::vector<ReceiverData*> receivers, std
 
 
 
-	store_matrix(full_mat_nz, "../../assets/precompute/full_nz.matrix");
-	store_matrixi(probe_indices, "../../assets/precompute/probe_indices.imatrix");
+	store_matrix(full_mat_nz, PRECOMP_ASSET_FOLDER "full_nz.matrix");
+	store_matrixi(probe_indices, PRECOMP_ASSET_FOLDER "probe_indices.imatrix");
 
 	coeff_matrix.setFromTriplets(coefficients.begin(), coefficients.end());
-	store_matrix(coeff_matrix.transpose().toDense(), "../../assets/precompute/full_matrix.matrix");
+	store_matrix(coeff_matrix.transpose().toDense(), PRECOMP_ASSET_FOLDER "full_matrix.matrix");
 
 	RedSVD::RedSVD<Eigen::SparseMatrix<float>> s;
 	s.compute(coeff_matrix, 64);
 
 	//transpose to store stuff adjecently
-	store_matrix(s.matrixU().transpose(), "../../assets/precompute/u.matrix");
+	store_matrix(s.matrixU().transpose(), PRECOMP_ASSET_FOLDER "u.matrix");
 
 	auto sigma = Eigen::DiagonalMatrix<float, Eigen::Dynamic>(s.singularValues()).toDenseMatrix();
 	auto V = Eigen::MatrixXf(s.matrixV());
 	auto SV = sigma*V.transpose();
-	store_matrix(SV, "../../assets/precompute/sigma_v.matrix");
+	store_matrix(SV, PRECOMP_ASSET_FOLDER "sigma_v.matrix");
 
 
 	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
@@ -682,17 +689,19 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 
 	auto depth_maps = render_probe_depth(mesh->num_indices, probe_locations);
 
-	std::vector<ReceiverData *> receivers;
+	std::vector<ReceiverData> receivers;
 	receivers.reserve(recs.size());
 
 	printf("finding closest probes for each receivers...\n");
 
+#define REC_RADIUS
+
 	float radius = FLT_MAX;
 	for (Receiver receiver : recs) {
-		ReceiverData *rec_data = (ReceiverData *)calloc(1, sizeof(ReceiverData));
-		rec_data->normal = receiver.norm;
-		rec_data->position = receiver.pos;
-		rec_data->px = receiver.px;
+		ReceiverData rec_data = {};
+		rec_data.normal = receiver.norm;
+		rec_data.position = receiver.pos;
+		rec_data.px = receiver.px;
 
 		// jesus christ do I love c++ templates 
 		std::priority_queue<int, std::vector<int>,
@@ -711,48 +720,60 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 			closest_probes.push(i);
 			closest_probes.pop();
 		}
-		float dist = (probe_locations[closest_probes.top()] - rec_data->position).norm();
+
+		closest_probes.pop();
+		closest_probes.pop();
+
+
+
+
+
+		float dist = (probe_locations[closest_probes.top()] - rec_data.position).norm();
 		
 		//@fix when num probes is less than num_probes_per_rec
 		closest_probes.pop();
-		//radius = min(radius, dist);
-		float radius = dist;
-		int i = num_probes_per_rec-1;
+#ifdef REC_RADIUS
+		radius = dist;
+#else 
+		radius = min(radius, dist);
+#endif
+		int i = closest_probes.size()-1;
 		while (!closest_probes.empty()) {
 			int probe_index = closest_probes.top();
 			vec3 probe = probe_locations[probe_index];
 			closest_probes.pop();
-			float dist = (probe - rec_data->position).norm();
-			rec_data->visible_probes[i].position = probe;
-			rec_data->visible_probes[i].index = probe_index;
-			rec_data->visible_probes[i].depth_cube_map = depth_maps[probe_index];
-			rec_data->visible_probes[i].weight = w(dist / radius);
+			float dist = (probe - rec_data.position).norm();
+			rec_data.visible_probes[i].position = probe;
+			rec_data.visible_probes[i].index = probe_index;
+			rec_data.visible_probes[i].depth_cube_map = depth_maps[probe_index];
+#ifdef REC_RADIUS
+			rec_data.visible_probes[i].weight = w(dist / radius);
+#endif
 			i--;
 		}
-		rec_data->num_visible_probes = num_probes_per_rec;
-
 		receivers.push_back(rec_data);
 	}
 
-#if 0
+#if 1
 	float avg_num_visble_probes = 0.0;
 	int min_num_visible_probes = num_probes_per_rec;
 	int max_num_visible_probes = 0;
 	int num_with_zero_visible = 0;
-	float inv_radius = 1.0 / radius;
-	for (ReceiverData *receiver : receivers) {
-		receiver->num_visible_probes = 0.0;
+	for (ReceiverData &receiver : receivers) {
+		receiver.num_visible_probes = 0.0;
 		for (int i = 0; i < num_probes_per_rec; i++) {
-			float dist = (receiver->position - receiver->visible_probes[i].position).norm();
-			float t = min(dist * inv_radius, 1.0f);
-			receiver->visible_probes[i].weight = w(t);
-			if (receiver->visible_probes[i].weight > 0.0) ++receiver->num_visible_probes;
+			float dist = (receiver.visible_probes[i].position - receiver.position).norm();
+#ifndef REC_RADIUS
+			receiver->visible_probes[i].weight = w(dist / radius);
+#endif
+			if (receiver.visible_probes[i].weight > 0.0) ++receiver.num_visible_probes;
+			//receiver->num_visible_probes = 8;
 		}
-		avg_num_visble_probes += receiver->num_visible_probes / (float)receivers.size();
-		max_num_visible_probes = max(max_num_visible_probes, receiver->num_visible_probes);
-		min_num_visible_probes = min(min_num_visible_probes, receiver->num_visible_probes);
+		avg_num_visble_probes += receiver.num_visible_probes / (float)receivers.size();
+		max_num_visible_probes = max(max_num_visible_probes, receiver.num_visible_probes);
+		min_num_visible_probes = min(min_num_visible_probes, receiver.num_visible_probes);
 
-		if (receiver->num_visible_probes == 0)++num_with_zero_visible;
+		if (receiver.num_visible_probes == 0)++num_with_zero_visible;
 	}
 	printf("avg_num_visble probes: %f\n", avg_num_visble_probes);
 	printf("min_num_visble probes: %d\n", min_num_visible_probes);
