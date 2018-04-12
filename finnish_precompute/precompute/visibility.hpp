@@ -271,6 +271,88 @@ void check_fbo() {
 #include "redsvd-h.h"
 
 
+#pragma optmize("",off)
+std::vector<Receiver> compute_receivers_gpu(int num_indices) {
+	GLuint shader = LoadShaders("comp_recs.vert", "comp_recs.frag");
+	glUseProgram(shader);
+
+	GLuint fbo;
+	glGenFramebuffers(1, &fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+	int size = 1024;
+	int num_pbo_bytes = size*size*(sizeof(vec3)*2);
+	check_gl_error();
+
+	GLuint pbo;
+	glGenBuffers(1, &pbo);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
+	glBufferData(GL_PIXEL_PACK_BUFFER, num_pbo_bytes, NULL, GL_STREAM_READ);
+
+
+	GLuint textures[2];
+	check_gl_error();
+	glGenTextures(2, textures);
+	for (int i = 0; i < 2; i++) {
+		glBindTexture(GL_TEXTURE_2D, textures[i]);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, size, size, 0, GL_RGBA, GL_FLOAT, NULL);
+	}
+	check_gl_error();
+
+	glDisable(GL_DEPTH_TEST);
+	for (int i = 0; i < 2; i++) {
+		glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, textures[i], 0);
+	}
+	check_gl_error();
+
+	GLuint DrawBuffer[2] = { GL_COLOR_ATTACHMENT0,GL_COLOR_ATTACHMENT1 };
+	glDrawBuffers(2, DrawBuffer);
+	check_gl_error();
+
+	glClearColor(0, 0, 0, 0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	check_gl_error();
+
+	glViewport(0, 0, size, size);
+	check_gl_error();
+
+	check_fbo();
+	glDisable(GL_CULL_FACE);
+	check_gl_error();
+
+	glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, (void *)0);
+
+	check_gl_error();
+
+	glBindTexture(GL_TEXTURE_2D, textures[0]);
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, 0);
+	glBindTexture(GL_TEXTURE_2D, textures[1]);
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, (void*)(size*size*sizeof(vec3)));
+	check_gl_error();
+
+	vec3* rec_verts = (vec3 *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
+	vec3* rec_norms  = &rec_verts[size*size];
+
+	check_gl_error();
+	std::vector<Receiver> ret;
+	for (int x = 0; x < size; x++) {
+		for (int y = 0; y < size; y++) {
+			vec3 p = rec_verts[y*size + x];
+			vec3 n = rec_norms[y*size + x];
+			Receiver rec;
+			if (n != p || p != vec3(0, 0, 0)) {
+				rec.norm = n;
+				rec.pos = p;
+				rec.px = ivec2(x, y);
+				ret.push_back(rec);
+			}
+		}
+	}
+	return ret;
+}
+#pragma optmize("",on)
+
+
 void store_matrix(Eigen::MatrixXf mat, char *path) {
 	FILE *file = fopen(path, "wb");
 
@@ -595,12 +677,13 @@ void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std:
 
 
 void load_mesh(Mesh *mesh) {
-	GLuint vao, vertex_buffer, index_buffer, normal_buffer;
+	GLuint vao, vertex_buffer, index_buffer, normal_buffer, lm_uv_buffer;
 
 	glGenVertexArrays(1, &vao);
 	glGenBuffers(1, &vertex_buffer);
 	glGenBuffers(1, &normal_buffer);
 	glGenBuffers(1, &index_buffer);
+	glGenBuffers(1, &lm_uv_buffer);
 
 	glBindVertexArray(vao);
 	glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
@@ -609,6 +692,9 @@ void load_mesh(Mesh *mesh) {
 
 	glBindBuffer(GL_ARRAY_BUFFER, normal_buffer);
 	glBufferData(GL_ARRAY_BUFFER, mesh->num_verts * sizeof(vec3), mesh->normals, GL_STATIC_DRAW);
+
+	glBindBuffer(GL_ARRAY_BUFFER, lm_uv_buffer);
+	glBufferData(GL_ARRAY_BUFFER, mesh->num_verts * sizeof(vec2), mesh->lightmap_uv, GL_STATIC_DRAW);
 
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer);
@@ -621,6 +707,10 @@ void load_mesh(Mesh *mesh) {
 	glEnableVertexAttribArray(1);
 	glBindBuffer(GL_ARRAY_BUFFER, normal_buffer);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vec3), (void*)0);
+
+	glEnableVertexAttribArray(2);
+	glBindBuffer(GL_ARRAY_BUFFER, lm_uv_buffer);
+	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(vec2), (void*)0);
 }
 
 bool init_gl() {
@@ -669,8 +759,12 @@ bool init_gl() {
 #include <queue>
 
 
+
+
 #pragma optmize("", off)
-int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Mesh *mesh) {
+int visibility( std::vector<vec3> probe_locations, Mesh *mesh) {
+
+
 
 	if (!init_gl()) {
 		printf("error while initializing opengl");
@@ -678,6 +772,20 @@ int visibility(std::vector<Receiver> recs, std::vector<vec3> probe_locations, Me
 	}
 
 	load_mesh(mesh);
+	std::vector<Receiver> recs = compute_receivers_gpu(mesh->num_indices);
+
+	{
+		FILE *f = fopen(PRECOMP_ASSET_FOLDER "receiver_px_map.imatrix", "wb");
+		int num_recs = recs.size();
+		int num_comps = 2;
+
+		fwrite(&num_comps, sizeof(num_comps), 1, f);
+		fwrite(&num_recs, sizeof(num_recs), 1, f);
+		for (Receiver rec : recs) {
+			fwrite(rec.px.data(), sizeof(int), 2, f);
+		}
+		fclose(f);
+	}
 
 #if 0 // to visualize shadow map at probe_loc
 	vec3 probe_loc = vec3(0, 0.5, 0);

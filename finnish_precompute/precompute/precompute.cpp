@@ -1,5 +1,5 @@
 
-//#define T_SCENE
+#define T_SCENE
 
 #ifdef T_SCENE
 #define RHO_PROBES 7.0f //15.0f //7.0f//15.0f
@@ -733,6 +733,7 @@ int main(int argc, char * argv[]) {
 #endif
 
 
+#if 0
 	std::vector<Receiver>receivers;
 
 	{ // generate receivers
@@ -748,11 +749,29 @@ int main(int argc, char * argv[]) {
 		}
 		fclose(f);
 	}
-
+#endif
 
 	{ // compute local transport
-		visibility(receivers, probes, &m);
+
+		Mesh m2;
+		m2.num_indices = output_mesh->index_count;
+		m2.indices = output_mesh->index_array;
+		m2.num_verts = output_mesh->vertex_count;
+		m2.verts = (vec3 *)malloc(m2.num_verts * sizeof(vec3));
+		m2.normals = (vec3 *)malloc(m2.num_verts * sizeof(vec3));
+		m2.lightmap_uv = (vec2 *)malloc(m2.num_verts * sizeof(vec2));
+
+		for (int i = 0; i < m2.num_verts; i++) {
+			auto v_ref = output_mesh->vertex_array[i].xref;
+			m2.verts[i] = m.verts[v_ref];
+			m2.normals[i] = m.normals[v_ref];
+			m2.lightmap_uv[i].x() = output_mesh->vertex_array[i].uv[0];
+			m2.lightmap_uv[i].y() = output_mesh->vertex_array[i].uv[1];
+		}
+
+		visibility(probes, &m2);
 	}
+
 
 
 	// Free stuff

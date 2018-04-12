@@ -2,7 +2,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-var T_SCENE = false;
+var T_SCENE = true;
 
 var stats;
 var gui;
@@ -15,7 +15,8 @@ var settings = {
 	view_gi_lightmap:false,
 	view_lightmap:false,
 	redraw_global_illumination:false,
-	lightmap_only: false
+	lightmap_only: false,
+	view_padded: false,
 };
 
 var sceneSettings = {
@@ -316,6 +317,7 @@ function init() {
     gui.add(settings, 'view_lightmap');
     gui.add(settings, 'redraw_global_illumination');
     gui.add(settings, 'lightmap_only');
+    gui.add(settings, 'view_padded');
 
 	//////////////////////////////////////
 	// Basic GL state
@@ -354,7 +356,8 @@ function init() {
 	setupDirectionalLightShadowMapFramebuffer(shadowMapSize);
 	setupLightmapFramebuffer(lightMapSize);
 	setupGILightmapFramebuffer(giLightMapSize);
-
+	setupPaddingFbo(giLightMapSize);
+	
 	setupSceneUniforms();
 
 	var shaderLoader = new ShaderLoader('src/shaders/');
@@ -378,6 +381,7 @@ function init() {
     shaderLoader.addShaderProgram('probeVisualizeSH', 'probe_visualize_sh.vert.glsl', 'probe_visualize_sh.frag.glsl');
     shaderLoader.addShaderProgram('probeVisualizeRaw', 'probe_visualize_raw.vert.glsl', 'probe_visualize_raw.frag.glsl');
     shaderLoader.addShaderProgram('texturedByLightmap', 'textured_by_lightmap.vert.glsl', 'textured_by_lightmap.frag.glsl');
+    shaderLoader.addShaderProgram('padShader', 'screen_space.vert.glsl', 'padd.frag.glsl');
 
 	var create_gi_draw_call = function()
 	{
@@ -390,9 +394,11 @@ function init() {
 			.vertexIntegerAttributeBuffer(1, buf_probe_indices);
 			GIDrawCall = app.createDrawCall(calcGIShader, vertexArray, PicoGL.POINTS);
 		}
-		
 	}
+
+
 	shaderLoader.load(function(data) {
+
 
 		var fullscreenVertexArray = createFullscreenVertexArray();
 
@@ -434,7 +440,7 @@ function init() {
             loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
 		}
 
-
+		padDrawCall = app.createDrawCall(makeShader('padShader', data), fullscreenVertexArray);
 
 		texturedByLightmapShader = makeShader('texturedByLightmap', data);
 
@@ -699,6 +705,26 @@ function setupGILightmapFramebuffer(size) {
 	.depthTarget(depthBuffer); 
 }
 
+var padDrawCall;
+var padFBO;
+function setupPaddingFbo(size)
+{
+	var colorBuffer = app.createTexture2D(size, size, {
+		internalFormat: PicoGL.RGBA16F,
+		minFilter: PicoGL.LINEAR,
+		magFilter: PicoGL.LINEAR,
+		//wrapS:gl.CLAMP_TO_BORDER,
+		//wrapT:gl.CLAMP_TO_BORDER,
+	});
+	var depthBuffer = app.createTexture2D(size, size, {
+		format: PicoGL.DEPTH_COMPONENT
+	});
+
+	padFBO = app.createFramebuffer()
+	.colorTarget(0, colorBuffer)
+	.depthTarget(depthBuffer); 
+}
+
 
 
 function setupLightmapFramebuffer(size) {
@@ -722,8 +748,6 @@ function setupLightmapFramebuffer(size) {
 	.colorTarget(0, colorBuffer)
 	.depthTarget(depthBuffer); 
 }
-
-
 
 function setupProbeRadianceFramebuffer() {
 
@@ -889,6 +913,11 @@ function render() {
 		{
 			renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
 		}
+
+		if(gilightMapFramebuffer && settings.view_padded)
+		{
+			renderTextureToScreen(padFBO.colorTextures[0]);
+		}
 	}
 	picoTimer.end();
 	stats.end();
@@ -957,7 +986,7 @@ function renderLightmap() {
 	var dirLightViewDirection = directionalLight.viewSpaceDirection(camera);
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
-	var lightMap = gilightMapFramebuffer.colorTextures[0];
+	var lightMap = padFBO.colorTextures[0];
 
 	app.drawFramebuffer(lightMapFramebuffer)
 	.viewport(0, 0, lightMapSize, lightMapSize)
@@ -1042,6 +1071,14 @@ function render_gi_no_svd()
 		GIDrawCall
 		.texture('probes_sh_coeffs',probeRadianceFramebuffer.colorTextures[0])
 		.texture('rec_sh_coeffs', full_texture).draw();
+
+		app.drawFramebuffer(padFBO)
+		.viewport(0, 0, giLightMapSize, giLightMapSize)
+		.noDepthTest()
+		.noBlend()
+		.clearColor(0,0,0)
+		.clear();
+		padDrawCall.texture('u_texture', gilightMapFramebuffer.colorTextures[0]).draw();
 	}
 }
 
@@ -1051,7 +1088,7 @@ function renderScene() {
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
 	//var lightMap = lightMapFramebuffer.colorTextures[0];
-	if(gilightMapFramebuffer) lightMap = gilightMapFramebuffer.colorTextures[0];
+	if(padFBO) lightMap = padFBO.colorTextures[0];
 	app.defaultDrawFramebuffer()
 	.defaultViewport()
 	.depthTest()
@@ -1101,7 +1138,7 @@ function renderSceneTexturedByLightMap() {
             .uniform('u_world_from_local', mesh.modelMatrix)
             .uniform('u_view_from_world', camera.viewMatrix)
             .uniform('u_projection_from_view', camera.projectionMatrix)
-            .texture('u_light_map', gilightMapFramebuffer.colorTextures[0])
+            .texture('u_light_map', padFBO.colorTextures[0])
             .draw();
     }
 }

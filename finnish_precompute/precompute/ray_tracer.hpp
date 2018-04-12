@@ -39,6 +39,7 @@ struct Ray {
 };
 
 typedef Eigen::Vector3d vec3d;
+typedef Eigen::Vector2d vec2d;
 
 struct InternalRay {
 	vec3d origin;
