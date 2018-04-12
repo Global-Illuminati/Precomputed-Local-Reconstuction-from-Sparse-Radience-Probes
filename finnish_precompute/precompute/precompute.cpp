@@ -311,7 +311,8 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 			vec3 baryc = compute_barycentric_coords(get_pixel_center(pixel), uv_tri);
 			bool px_center_inside_tri = (baryc.x() > 0 && baryc.y() > 0 && baryc.z() > 0);
 
-			if (triangle_inside_px_influence) {
+			//if (triangle_inside_px_influence) {
+			if (px_center_inside_tri) {
 				pixel_is_processed[x][y] = px_center_inside_tri;
 
 				// will get bad interpolations...
@@ -359,6 +360,71 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 			}
 		}
 	}
+
+	int padding_extent = 1;
+	// --- Add padding receivers by creating duplicates of adjacent receivers to empty cells ---
+	for (int i = 0; i < padding_extent; i++) {
+		int padding_duplicates = 0;
+		for (int x = 0; x < 1024; x++) for (int y = 0; y < 1024; y++) {
+			ivec2 pixel = ivec2(x, y);
+			if (!pixel_is_processed[x][y]) {
+				// left, top, right, bottom neighbors
+				if (x > 0 && pixel_is_processed[x - 1][y]) {
+					ivec2 neighbor_px = ivec2(x - 1, y);
+					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
+					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
+					padding_duplicates++;
+				}
+				else if (y > 0 && pixel_is_processed[x][y - 1]) {
+					ivec2 neighbor_px = ivec2(x, y - 1);
+					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
+					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
+					padding_duplicates++;
+				}
+				else if (x <= 1024 && pixel_is_processed[x + 1][y]) {
+					ivec2 neighbor_px = ivec2(x + 1, y);
+					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
+					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
+					padding_duplicates++;
+				}
+				else if (y <= 1024 && pixel_is_processed[x][y + 1]) {
+					ivec2 neighbor_px = ivec2(x, y + 1);
+					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
+					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
+					padding_duplicates++;
+				}
+				else if (x > 0 && y > 0 && pixel_is_processed[x - 1][y - 1]) { // diagonal neighbors
+					ivec2 neighbor_px = ivec2(x - 1, y - 1);
+					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
+					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
+					padding_duplicates++;
+				}
+				else if (x <= 1024 && y > 0 && pixel_is_processed[x + 1][y - 1]) {
+					ivec2 neighbor_px = ivec2(x + 1, y - 1);
+					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
+					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
+					padding_duplicates++;
+				}
+				else if (x <= 1024 && y <= 1024 && pixel_is_processed[x + 1][y + 1]) {
+					ivec2 neighbor_px = ivec2(x + 1, y + 1);
+					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
+					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
+					padding_duplicates++;
+				}
+				else if (x > 0 && y <= 1024 && pixel_is_processed[x - 1][y + 1]) {
+					ivec2 neighbor_px = ivec2(x - 1, y + 1);
+					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
+					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
+					padding_duplicates++;
+				}
+			}
+		}
+		for (Receiver r : receiver_set) {
+			pixel_is_processed[r.px[0]][r.px[1]] = true;
+		}
+		printf("Added %d receiver duplicates for padding.\n", padding_duplicates);
+	}
+	// -------------------
 
 	std::copy(receiver_set.begin(), receiver_set.end(), std::back_inserter(receivers));
 
