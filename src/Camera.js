@@ -4,6 +4,9 @@ function Camera(position, orientation) {
 	this.position = position || vec3.create();
 	this.orientation = orientation || quat.create();
 
+	this.initialPosition = vec3.clone(this.position);
+	this.initialOrientation = quat.clone(this.orientation);
+	
 	this.near = 0.01;
 	this.far = 1000.0;
 	this.fovDegrees = 80;
@@ -62,6 +65,29 @@ function Camera(position, orientation) {
 
 	var scope = this;
 
+	function resetCamera() {
+		if (scope.initialPosition != undefined) {
+			scope.position = vec3.clone(scope.initialPosition);
+		}
+		if (scope.orientation != undefined) {
+			scope.orientation = quat.clone(scope.initialOrientation);
+		}
+		//scope.updateViewMatrix();
+		//scope.updateProjectionMatrix();
+		scope.updateViewMatrix();
+		scope.keys = {
+				w: 0, up: 0,
+				s: 0, down: 0,
+				a: 0, left: 0,
+				d: 0, right: 0,
+				space: 0, shift: 0,
+				q: 0, e: 0
+			};
+		scope.controlsEnabled = false;
+	}
+
+	
+
 	window.addEventListener('keydown', function(e) {
 
 		setKeyState(scope.keys, e.keyCode, 1);
@@ -73,6 +99,11 @@ function Camera(position, orientation) {
 		else if (e.keyCode === 17 /* ctrl */) {
 			scope.controlsEnabled = true;
 			scope.lastMousePos = null;
+		}
+
+		else if (e.keyCode == 45 || e.keyCode == 48) { // Numpad0 or 0
+			resetCamera();
+
 		}
 
 	});
