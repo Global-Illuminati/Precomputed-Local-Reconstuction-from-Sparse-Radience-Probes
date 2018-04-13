@@ -91,6 +91,16 @@ var calcGIShader;
 var transformPCProbesDrawCall;
 var GIDrawCall;
 
+var probe_support_radius_squared;
+
+if (T_SCENE) {
+	let support_radius = 6.0;
+	probe_support_radius_squared = Math.pow(support_radius,2.0);
+} else {
+    let support_radius = 10.0;
+    probe_support_radius_squared = Math.pow(support_radius,2.0);
+}
+
 window.addEventListener('DOMContentLoaded', function () {
 
 	init();
@@ -202,6 +212,7 @@ function makeTextureFromProbePositions(probe_positions) {
     options['internalFormat'] = PicoGL.RGB32F;
     options['type'] = PicoGL.FLOAT;
     image_data = new Float32Array(probe_positions);
+    console.log("num_probes: " + num_probes)
     return app.createTexture2D(image_data, num_probes, 1, options);
 }
 
@@ -280,7 +291,8 @@ function loadDynamicObject(directory, objFilename, mtlFilename, modelMatrix) {
                     .texture('u_specular_map', loadTexture(specularMap))
                     .texture('u_normal_map', loadTexture(normalMap))
                     .texture('u_probe_pos_texture', probe_pos_texture)
-					.uniform('u_num_probes', num_probes);
+					.uniform('u_num_probes', num_probes)
+					.uniform('u_probe_support_radius_squared', probe_support_radius_squared);
 
 
                 var shadowMappingDrawCall = app.createDrawCall(shadowMapDynamicShader, vertexArray);
@@ -598,6 +610,7 @@ function init() {
 
 	dat_loader.load(precompute_folder + "probes.dat", function(value) {
 		probeLocations = value.reduce( (a,b) => a.concat(b) );
+		num_probes = probeLocations.length / 3;
         probe_pos_texture = makeTextureFromProbePositions(probeLocations);
 	});
 
