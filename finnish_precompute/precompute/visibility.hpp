@@ -280,8 +280,13 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 	glGenFramebuffers(1, &fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
+	// horrible approximate conservative rasterization
+	// msaa should be better,
+
+	int samples_per_side = 4;
 	int size = 1024;
-	int num_pbo_bytes = size*size*(sizeof(vec3)*2);
+	int ssize = samples_per_side * size;
+	int num_pbo_bytes = ssize*ssize*(sizeof(vec3)*2);
 	check_gl_error();
 
 	GLuint pbo;
@@ -295,7 +300,7 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 	glGenTextures(2, textures);
 	for (int i = 0; i < 2; i++) {
 		glBindTexture(GL_TEXTURE_2D, textures[i]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, size, size, 0, GL_RGBA, GL_FLOAT, NULL);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ssize, ssize, 0, GL_RGBA, GL_FLOAT, NULL);
 	}
 	check_gl_error();
 
@@ -313,7 +318,7 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 	glClear(GL_COLOR_BUFFER_BIT);
 	check_gl_error();
 
-	glViewport(0, 0, size, size);
+	glViewport(0, 0, ssize, ssize);
 	check_gl_error();
 
 	check_fbo();
@@ -327,27 +332,46 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, 0);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, (void*)(size*size*sizeof(vec3)));
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, (void*)(ssize*ssize*sizeof(vec3)));
 	check_gl_error();
 
 	vec3* rec_verts = (vec3 *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
-	vec3* rec_norms  = &rec_verts[size*size];
+	vec3* rec_norms  = &rec_verts[ssize*ssize];
 
 	check_gl_error();
 	std::vector<Receiver> ret;
 	for (int x = 0; x < size; x++) {
 		for (int y = 0; y < size; y++) {
-			vec3 p = rec_verts[y*size + x];
-			vec3 n = rec_norms[y*size + x];
-			Receiver rec;
-			if (n != p || p != vec3(0, 0, 0)) {
-				rec.norm = n;
-				rec.pos = p;
+			vec3 pos_ack = vec3(0, 0, 0);
+			vec3 norm_ack = vec3(0, 0, 0);
+			float num_hit = 0.0;
+			for (int dx = 0; dx < samples_per_side; dx++) {
+				for (int dy = 0; dy < samples_per_side; dy++) {
+					int xx = x*samples_per_side + dx;
+					int yy = y*samples_per_side + dy;
+
+					vec3 p = rec_verts[yy*ssize + xx];
+					vec3 n = rec_norms[yy*ssize + xx];
+					if (n != p || p != vec3(0, 0, 0)) {
+						norm_ack += n;
+						pos_ack  += p;
+						num_hit += 1.0;
+					}
+				}
+			}
+			if (num_hit != 0.0) {
+				Receiver rec;
+				rec.pos = pos_ack / num_hit;
+				rec.norm = norm_ack.normalized();
 				rec.px = ivec2(x, y);
 				ret.push_back(rec);
 			}
 		}
 	}
+	glDeleteTextures(2, textures);
+	glDeleteFramebuffers(1, &fbo);
+	glDeleteBuffers(1,&pbo);
+	glDeleteShader(shader);
 	return ret;
 }
 #pragma optmize("",on)
@@ -693,9 +717,10 @@ void load_mesh(Mesh *mesh) {
 	glBindBuffer(GL_ARRAY_BUFFER, normal_buffer);
 	glBufferData(GL_ARRAY_BUFFER, mesh->num_verts * sizeof(vec3), mesh->normals, GL_STATIC_DRAW);
 
-	glBindBuffer(GL_ARRAY_BUFFER, lm_uv_buffer);
-	glBufferData(GL_ARRAY_BUFFER, mesh->num_verts * sizeof(vec2), mesh->lightmap_uv, GL_STATIC_DRAW);
-
+	if (mesh->lightmap_uv) {
+		glBindBuffer(GL_ARRAY_BUFFER, lm_uv_buffer);
+		glBufferData(GL_ARRAY_BUFFER, mesh->num_verts * sizeof(vec2), mesh->lightmap_uv, GL_STATIC_DRAW);
+	}
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, index_buffer);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, mesh->num_indices * sizeof(unsigned int), mesh->indices, GL_STATIC_DRAW);
@@ -707,10 +732,11 @@ void load_mesh(Mesh *mesh) {
 	glEnableVertexAttribArray(1);
 	glBindBuffer(GL_ARRAY_BUFFER, normal_buffer);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(vec3), (void*)0);
-
-	glEnableVertexAttribArray(2);
-	glBindBuffer(GL_ARRAY_BUFFER, lm_uv_buffer);
-	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(vec2), (void*)0);
+	if (mesh->lightmap_uv) {
+		glEnableVertexAttribArray(2);
+		glBindBuffer(GL_ARRAY_BUFFER, lm_uv_buffer);
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(vec2), (void*)0);
+	}
 }
 
 bool init_gl() {
@@ -787,6 +813,7 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh) {
 		fclose(f);
 	}
 
+	
 #if 0 // to visualize shadow map at probe_loc
 	vec3 probe_loc = vec3(0, 0.5, 0);
 	probe_locations.clear();
