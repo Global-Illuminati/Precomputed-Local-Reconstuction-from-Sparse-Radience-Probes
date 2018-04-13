@@ -15,7 +15,8 @@ var settings = {
 	view_gi_lightmap:false,
 	view_lightmap:false,
 	redraw_global_illumination:false,
-	lightmap_only: false
+	lightmap_only: false,
+	view_padded: false,
 };
 
 var sceneSettings = {
@@ -225,7 +226,7 @@ function makeTexturefromFloatArr(data) {
 	options['type'] = PicoGL.FLOAT;
 
 	// @ROBUSTNESS, spec requires support of only 1024x1024 but if the exist on my laptop maybe it's fine?
-
+	
 	var max_size = 1<<14;
 
 	var aligned_length = (data.length/4 + max_size-1) & ~(max_size-1);
@@ -340,7 +341,7 @@ function loadObjectUV2(directory, objFilename, mtlFilename, modelMatrix) {
                         .texture('u_normal_map', loadTexture(normalMap));
                 }
 
-
+				
 				var shadowMappingDrawCall = app.createDrawCall(shadowMapShader, vertexArray);
 
 				var texturedByLightmapDrawCall = app.createDrawCall(texturedByLightmapShader, vertexArray)
@@ -395,6 +396,7 @@ function init() {
     gui.add(settings, 'view_lightmap');
     gui.add(settings, 'redraw_global_illumination');
     gui.add(settings, 'lightmap_only');
+    gui.add(settings, 'view_padded');
 
 	//////////////////////////////////////
 	// Basic GL state
@@ -433,6 +435,7 @@ function init() {
 	setupDirectionalLightShadowMapFramebuffer(shadowMapSize);
 	setupLightmapFramebuffer(lightMapSize);
 	setupGILightmapFramebuffer(giLightMapSize);
+	setupPaddingFbo(giLightMapSize);
 
 	setupSceneUniforms();
 
@@ -460,9 +463,7 @@ function init() {
     shaderLoader.addShaderProgram('probeVisualizeSH', 'probe_visualize_sh.vert.glsl', 'probe_visualize_sh.frag.glsl');
     shaderLoader.addShaderProgram('probeVisualizeRaw', 'probe_visualize_raw.vert.glsl', 'probe_visualize_raw.frag.glsl');
     shaderLoader.addShaderProgram('texturedByLightmap', 'textured_by_lightmap.vert.glsl', 'textured_by_lightmap.frag.glsl');
-
-
-
+    shaderLoader.addShaderProgram('padShader', 'screen_space.vert.glsl', 'padd.frag.glsl');
 
 	var create_gi_draw_call = function()
 	{
@@ -475,9 +476,11 @@ function init() {
 			.vertexIntegerAttributeBuffer(1, buf_probe_indices);
 			GIDrawCall = app.createDrawCall(calcGIShader, vertexArray, PicoGL.POINTS);
 		}
-
 	}
+
+
 	shaderLoader.load(function(data) {
+
 
 		var fullscreenVertexArray = createFullscreenVertexArray();
 
@@ -535,7 +538,7 @@ function init() {
 
 
 
-
+		padDrawCall = app.createDrawCall(makeShader('padShader', data), fullscreenVertexArray);
 
 		texturedByLightmapShader = makeShader('texturedByLightmap', data);
 
@@ -544,7 +547,7 @@ function init() {
 
 	var dat_loader = new DatLoader();
 	var num_loads = 3;
-
+	
 	var loading_done = function(){
 		--num_loads;
 		if(num_loads == 0){
@@ -602,12 +605,12 @@ function init() {
 /*
 	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
 		sigma_v_texture = makeTextureFromMatrix1(sigma_v);
-		setupTransformPCFramebuffer(64,1); // num pc components * num shs
+		setupTransformPCFramebuffer(64,1); // num pc components * num shs 
 	}, Float32Array);
 
 	matrix_loader.load("assets/precompute/u.matrix", function(u_mat){
 		u_texture = makeTexturefromFloatArr(u_mat.col_major_data);
-
+		
 		console.log('max_size', u_texture.gl.getParameter(u_texture.gl.MAX_TEXTURE_SIZE));
 	}, Float32Array);
 */
@@ -622,11 +625,11 @@ function init() {
 	}, Int16Array);
 
 
-
+	
 	matrix_loader.load(precompute_folder +  "full_nz.matrix", function(full_mat){
 		full_texture = makeTexturefromFloatArr(full_mat.col_major_data);
 	}, Float32Array);
-
+	
     initProbeToggleControls();
 }
 
@@ -771,9 +774,9 @@ function setupTransformPCFramebuffer(width, height)
 
 	transformPCFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
-	.depthTarget(depthBuffer);
-
-
+	.depthTarget(depthBuffer); 
+	
+	
 }
 
 var gilightMapFramebuffer = false;
@@ -797,6 +800,26 @@ function setupGILightmapFramebuffer(size) {
 	});
 
 	gilightMapFramebuffer = app.createFramebuffer()
+	.colorTarget(0, colorBuffer)
+	.depthTarget(depthBuffer); 
+}
+
+var padDrawCall;
+var padFBO;
+function setupPaddingFbo(size)
+{
+	var colorBuffer = app.createTexture2D(size, size, {
+		internalFormat: PicoGL.RGBA16F,
+		minFilter: PicoGL.LINEAR,
+		magFilter: PicoGL.LINEAR,
+		//wrapS:gl.CLAMP_TO_BORDER,
+		//wrapT:gl.CLAMP_TO_BORDER,
+	});
+	var depthBuffer = app.createTexture2D(size, size, {
+		format: PicoGL.DEPTH_COMPONENT
+	});
+
+	padFBO = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
 	.depthTarget(depthBuffer);
 }
@@ -822,10 +845,8 @@ function setupLightmapFramebuffer(size) {
 
 	lightMapFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
-	.depthTarget(depthBuffer);
+	.depthTarget(depthBuffer); 
 }
-
-
 
 function setupProbeRadianceFramebuffer() {
 
@@ -1023,10 +1044,15 @@ function render() {
 		if(settings.view_lightmap){
 			renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
 		}
-
+		
 		if(gilightMapFramebuffer && settings.view_gi_lightmap)
 		{
 			renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
+		}
+
+		if(gilightMapFramebuffer && settings.view_padded)
+		{
+			renderTextureToScreen(padFBO.colorTextures[0]);
 		}
 	}
 	picoTimer.end();
@@ -1096,7 +1122,7 @@ function renderLightmap() {
 	var dirLightViewDirection = directionalLight.viewSpaceDirection(camera);
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
-	var lightMap = gilightMapFramebuffer.colorTextures[0];
+	var lightMap = padFBO.colorTextures[0];
 
 	app.drawFramebuffer(lightMapFramebuffer)
 	.viewport(0, 0, lightMapSize, lightMapSize)
@@ -1146,7 +1172,7 @@ function render_probe_pc_transfrom()
 		.texture('sh_coeffs', probeRadianceFramebuffer.colorTextures[0])
 		.draw();
 	}
-
+	
 }
 
 function render_gi()
@@ -1159,12 +1185,12 @@ function render_gi()
 		.noBlend()
 		.clearColor(0,0,0)
 		.clear();
-
+		
 		GIDrawCall
 		.texture('pc_sh_coeffs', transformPCFramebuffer.colorTextures[0])
 		.texture('rec_sh_coeffs', u_texture).draw();
 	}
-
+	
 }
 
 function render_gi_no_svd()
@@ -1177,10 +1203,18 @@ function render_gi_no_svd()
 		.noBlend()
 		.clearColor(0,0,0)
 		.clear();
-
+		
 		GIDrawCall
 		.texture('probes_sh_coeffs',probeRadianceFramebuffer.colorTextures[0])
 		.texture('rec_sh_coeffs', full_texture).draw();
+
+		app.drawFramebuffer(padFBO)
+		.viewport(0, 0, giLightMapSize, giLightMapSize)
+		.noDepthTest()
+		.noBlend()
+		.clearColor(0,0,0)
+		.clear();
+		padDrawCall.texture('u_texture', gilightMapFramebuffer.colorTextures[0]).draw();
 	}
 }
 
@@ -1190,7 +1224,7 @@ function renderScene() {
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
 	//var lightMap = lightMapFramebuffer.colorTextures[0];
-	if(gilightMapFramebuffer) lightMap = gilightMapFramebuffer.colorTextures[0];
+	if(padFBO) lightMap = padFBO.colorTextures[0];
 	app.defaultDrawFramebuffer()
 	.defaultViewport()
 	.depthTest()
@@ -1236,7 +1270,6 @@ function renderScene() {
             }
 		}
 
-
 	}
 }
 
@@ -1255,7 +1288,7 @@ function renderSceneTexturedByLightMap() {
             .uniform('u_world_from_local', mesh.modelMatrix)
             .uniform('u_view_from_world', camera.viewMatrix)
             .uniform('u_projection_from_view', camera.projectionMatrix)
-            .texture('u_light_map', gilightMapFramebuffer.colorTextures[0])
+            .texture('u_light_map', padFBO.colorTextures[0])
             .draw();
     }
 }
