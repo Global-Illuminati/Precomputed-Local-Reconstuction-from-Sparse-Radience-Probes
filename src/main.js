@@ -2,7 +2,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-var T_SCENE = false;
+var T_SCENE = true;
 
 var stats;
 var gui;
@@ -33,6 +33,8 @@ var defaultShader;
 var shadowMapShader;
 var lightMapShader;
 var texturedByLightmapShader;
+var dynamicShader;
+var shadowMapDynamicShader;
 
 var blitTextureDrawCall;
 var environmentDrawCall;
@@ -53,6 +55,8 @@ var probeRadianceDrawCall;
 var camera;
 var directionalLight;
 var meshes = [];
+var staticMeshes = [];
+var dynamicMeshes = [];
 
 var probeDrawCall;
 var hideProbes = false;
@@ -73,6 +77,7 @@ var relight_shs;
 var relight_shs_texture;
 var relight_dirs;
 var relight_dirs_texture;
+var probe_pos_texture;
 var sigma_v_texture;
 
 var u_texture;
@@ -185,6 +190,20 @@ function makeTextureFromRelightDirs(relight_dirs) {
     return app.createTexture2D(image_data, num_relight_rays, 1, options);
 }
 
+// num_probes * 1 (RGB32F where R,G,B = x,y,z coordinates of probe position)
+// ex. 72 * 1
+function makeTextureFromProbePositions(probe_positions) {
+    var options = {};
+    options['minFilter'] = PicoGL.NEAREST;
+    options['magFilter'] = PicoGL.NEAREST;
+    options['mipmaps'] = false;
+    options['format'] = PicoGL.RGB;
+    options['internalFormat'] = PicoGL.RGB32F;
+    options['type'] = PicoGL.FLOAT;
+    image_data = new Float32Array(probe_positions);
+    return app.createTexture2D(image_data, num_probes, 1, options);
+}
+
 function makeTextureFromMatrix1(matrix) {
 	var options = {};
 	options['minFilter'] = PicoGL.NEAREST;
@@ -192,7 +211,7 @@ function makeTextureFromMatrix1(matrix) {
 	options['mipmaps'] = false;
 	options['format'] = PicoGL.RED;
 	options['internalFormat'] = PicoGL.R32F;
-	options['type'] = PicoGL.FLOAT;		
+	options['type'] = PicoGL.FLOAT;
 	return app.createTexture2D(matrix.col_major_data, matrix.rows, matrix.cols, options);
 }
 
@@ -206,7 +225,7 @@ function makeTexturefromFloatArr(data) {
 	options['type'] = PicoGL.FLOAT;
 
 	// @ROBUSTNESS, spec requires support of only 1024x1024 but if the exist on my laptop maybe it's fine?
-	
+
 	var max_size = 1<<14;
 
 	var aligned_length = (data.length/4 + max_size-1) & ~(max_size-1);
@@ -223,7 +242,64 @@ function makeShader(name, shaderLoaderData) {
 
 }
 
-function loadObject(directory, objFilename, mtlFilename, modelMatrix) {
+function debugMoveDynamicObject() {
+	var keys = camera.keys;
+    var translation = vec3.fromValues(
+        Math.sign(keys['right']  - keys['left']),
+        0.0,
+        Math.sign(keys['down'] - keys['up'])
+    );
+    translation = vec3.fromValues(translation[0] - translation[2], 0.0, translation[0] + translation[2]);
+    if (dynamicMeshes.length > 0 && dynamicMeshes[0] !== undefined) {
+    	mat4.translate(dynamicMeshes[0].modelMatrix, dynamicMeshes[0].modelMatrix, translation);
+    }
+}
+
+function loadDynamicObject(directory, objFilename, mtlFilename, modelMatrix) {
+
+    var objLoader = new OBJLoader();
+    var mtlLoader = new MTLLoader();
+
+    var path = 'assets/' + directory;
+
+    objLoader.load(path + objFilename, function(objects) {
+        mtlLoader.load(path + mtlFilename, function(materials) {
+            objects.forEach(function(object) {
+
+                var material = materials[object.material];
+                var diffuseMap  = (material.properties.map_Kd)   ? directory + material.properties.map_Kd   : 'default_diffuse.png';
+                var specularMap = (material.properties.map_Ks)   ? directory + material.properties.map_Ks   : 'default_specular.jpg';
+                var normalMap   = (material.properties.map_norm) ? directory + material.properties.map_norm : 'default_normal.jpg';
+
+                var vertexArray = createVertexArrayFromMeshInfo(object);
+
+                var drawCall = app.createDrawCall(dynamicShader, vertexArray)
+                    .uniformBlock('SceneUniforms', sceneUniforms)
+                    .texture('u_diffuse_map', loadTexture(diffuseMap))
+                    .texture('u_specular_map', loadTexture(specularMap))
+                    .texture('u_normal_map', loadTexture(normalMap))
+                    .texture('u_probe_pos_texture', probe_pos_texture)
+					.uniform('u_num_probes', num_probes);
+
+
+                var shadowMappingDrawCall = app.createDrawCall(shadowMapDynamicShader, vertexArray);
+
+                meshes.push({
+                    modelMatrix: modelMatrix || mat4.create(),
+                    drawCall: drawCall,
+                    shadowMapDrawCall: shadowMappingDrawCall,
+					isDynamic: true
+                });
+
+                dynamicMeshes.push(meshes[meshes.length-1]);
+
+            });
+        });
+    });
+
+}
+
+function loadObjectUV2(directory, objFilename, mtlFilename, modelMatrix) {
 
 	var objLoader = new OBJLoader();
 	var mtlLoader = new MTLLoader();
@@ -239,7 +315,7 @@ function loadObject(directory, objFilename, mtlFilename, modelMatrix) {
 				var specularMap = (material.properties.map_Ks)   ? directory + material.properties.map_Ks   : 'default_specular.jpg';
 				var normalMap   = (material.properties.map_norm) ? directory + material.properties.map_norm : 'default_normal.jpg';
 
-				var vertexArray = createVertexArrayFromMeshInfo(object);
+				var vertexArray = createVertexArrayFromMeshInfoUV2(object);
 
 				var drawCall, lightMappingDrawCall;
                 if (bakedDirect) {
@@ -264,7 +340,7 @@ function loadObject(directory, objFilename, mtlFilename, modelMatrix) {
                         .texture('u_normal_map', loadTexture(normalMap));
                 }
 
-				
+
 				var shadowMappingDrawCall = app.createDrawCall(shadowMapShader, vertexArray);
 
 				var texturedByLightmapDrawCall = app.createDrawCall(texturedByLightmapShader, vertexArray)
@@ -278,8 +354,11 @@ function loadObject(directory, objFilename, mtlFilename, modelMatrix) {
 					drawCall: drawCall,
 					shadowMapDrawCall: shadowMappingDrawCall,
 					lightmapDrawCall: lightMappingDrawCall,
-                    texturedByLightmapDrawCall: texturedByLightmapDrawCall
+                    texturedByLightmapDrawCall: texturedByLightmapDrawCall,
+                    isDynamic: false
 				});
+
+                staticMeshes.push(meshes[meshes.length-1]);
 
 			});
 		});
@@ -344,10 +423,10 @@ function init() {
 	//////////////////////////////////////
 	// Scene setup
 	if (T_SCENE) {
-        bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
-            'magFilter': PicoGL.LINEAR,
-            'mipmaps': true,
-            'flipY': true});
+        // bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
+        //     'magFilter': PicoGL.LINEAR,
+        //     'mipmaps': true,
+        //     'flipY': true});
     }
 
 	directionalLight = new DirectionalLight();
@@ -361,15 +440,18 @@ function init() {
 	shaderLoader.addShaderFile('common.glsl');
 	shaderLoader.addShaderFile('scene_uniforms.glsl');
 	shaderLoader.addShaderFile('mesh_attributes.glsl');
+	shaderLoader.addShaderFile('mesh_attributes_dynamic.glsl');
 	shaderLoader.addShaderProgram('unlit', 'unlit.vert.glsl', 'unlit.frag.glsl');
 	shaderLoader.addShaderProgram('default', 'default.vert.glsl', 'default.frag.glsl');
     shaderLoader.addShaderProgram('default_lm', 'default_lm.vert.glsl', 'default_lm.frag.glsl');
     shaderLoader.addShaderProgram('default_lm_baked_direct', 'default_lm.vert.glsl', 'default_lm_baked_direct.frag.glsl');
+    shaderLoader.addShaderProgram('dynamic_lm', 'dynamic_lm.vert.glsl', 'dynamic_lm.frag.glsl');
 	shaderLoader.addShaderProgram('environment', 'environment.vert.glsl', 'environment.frag.glsl');
 	shaderLoader.addShaderProgram('textureBlit', 'screen_space.vert.glsl', 'texture_blit.frag.glsl');
-	shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
+    shaderLoader.addShaderProgram('shadowMapping', 'shadow_mapping.vert.glsl', 'shadow_mapping.frag.glsl');
+    shaderLoader.addShaderProgram('shadowMappingDynamic', 'shadow_mapping_dynamic.vert.glsl', 'shadow_mapping.frag.glsl');
     shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
-    shaderLoader.addShaderProgram('lightMapping_baked_direct', 'direct_lightmap.vert.glsl', 'default_lm_baked_direct.frag.glsl');
+    shaderLoader.addShaderProgram('lightMapping_baked_direct', 'direct_lightmap.vert.glsl', 'direct_lightmap_baked_direct.frag.glsl');
 	shaderLoader.addShaderProgram('calc_gi', 'calc_gi.vert.glsl', 'calc_gi.frag.glsl');
 	shaderLoader.addShaderProgram('calc_gi_no_svd', 'calc_gi_no_svd.vert.glsl', 'calc_gi_no_svd.frag.glsl');
 	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
@@ -378,6 +460,9 @@ function init() {
     shaderLoader.addShaderProgram('probeVisualizeSH', 'probe_visualize_sh.vert.glsl', 'probe_visualize_sh.frag.glsl');
     shaderLoader.addShaderProgram('probeVisualizeRaw', 'probe_visualize_raw.vert.glsl', 'probe_visualize_raw.frag.glsl');
     shaderLoader.addShaderProgram('texturedByLightmap', 'textured_by_lightmap.vert.glsl', 'textured_by_lightmap.frag.glsl');
+
+
+
 
 	var create_gi_draw_call = function()
 	{
@@ -390,7 +475,7 @@ function init() {
 			.vertexIntegerAttributeBuffer(1, buf_probe_indices);
 			GIDrawCall = app.createDrawCall(calcGIShader, vertexArray, PicoGL.POINTS);
 		}
-		
+
 	}
 	shaderLoader.load(function(data) {
 
@@ -417,22 +502,38 @@ function init() {
             lightMapShader = makeShader('lightMapping', data);
         }
 
+        dynamicShader = makeShader('dynamic_lm', data);
+
 		shadowMapShader = makeShader('shadowMapping', data);
+
+        shadowMapDynamicShader = makeShader('shadowMappingDynamic', data);
+
 
 		var transformPCProbesShader = makeShader('transform_pc_probes', data);
 		calcGIShader = makeShader('calc_gi_no_svd', data);
-		create_gi_draw_call();	
-		
+		create_gi_draw_call();
+
 		transformPCProbesDrawCall = app.createDrawCall(transformPCProbesShader,fullscreenVertexArray);
 
         var probeRadianceShader = makeShader('probeRadiance', data);
         probeRadianceDrawCall = app.createDrawCall(probeRadianceShader, fullscreenVertexArray);
 
         if (T_SCENE) {
-            loadObject('t_scene/', 't_scene.obj_2xuv', 't_scene.mtl');
+            loadObjectUV2('t_scene/', 't_scene.obj_2xuv', 't_scene.mtl');
 		} else {
-            loadObject('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
+            loadObjectUV2('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
 		}
+
+        {
+            let m = mat4.create();
+            let r = quat.fromEuler(quat.create(), 0, 45, 0);
+            let t = vec3.fromValues(0, 1, 0);
+            let s = vec3.fromValues(0.06, 0.06, 0.06);
+            mat4.fromRotationTranslationScale(m, r, t, s);
+            loadDynamicObject('teapot/', 'teapot.obj', 'default.mtl', m);
+        }
+
+
 
 
 
@@ -443,7 +544,7 @@ function init() {
 
 	var dat_loader = new DatLoader();
 	var num_loads = 3;
-	
+
 	var loading_done = function(){
 		--num_loads;
 		if(num_loads == 0){
@@ -494,18 +595,19 @@ function init() {
 
 	dat_loader.load(precompute_folder + "probes.dat", function(value) {
 		probeLocations = value.reduce( (a,b) => a.concat(b) );
+        probe_pos_texture = makeTextureFromProbePositions(probeLocations);
 	});
 
 	var matrix_loader = new MatrixLoader();
 /*
 	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
 		sigma_v_texture = makeTextureFromMatrix1(sigma_v);
-		setupTransformPCFramebuffer(64,1); // num pc components * num shs 
+		setupTransformPCFramebuffer(64,1); // num pc components * num shs
 	}, Float32Array);
 
 	matrix_loader.load("assets/precompute/u.matrix", function(u_mat){
 		u_texture = makeTexturefromFloatArr(u_mat.col_major_data);
-		
+
 		console.log('max_size', u_texture.gl.getParameter(u_texture.gl.MAX_TEXTURE_SIZE));
 	}, Float32Array);
 */
@@ -520,11 +622,11 @@ function init() {
 	}, Int16Array);
 
 
-	
+
 	matrix_loader.load(precompute_folder +  "full_nz.matrix", function(full_mat){
 		full_texture = makeTexturefromFloatArr(full_mat.col_major_data);
 	}, Float32Array);
-	
+
     initProbeToggleControls();
 }
 
@@ -669,9 +771,9 @@ function setupTransformPCFramebuffer(width, height)
 
 	transformPCFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
-	.depthTarget(depthBuffer); 
-	
-	
+	.depthTarget(depthBuffer);
+
+
 }
 
 var gilightMapFramebuffer = false;
@@ -696,7 +798,7 @@ function setupGILightmapFramebuffer(size) {
 
 	gilightMapFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
-	.depthTarget(depthBuffer); 
+	.depthTarget(depthBuffer);
 }
 
 
@@ -720,7 +822,7 @@ function setupLightmapFramebuffer(size) {
 
 	lightMapFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
-	.depthTarget(depthBuffer); 
+	.depthTarget(depthBuffer);
 }
 
 
@@ -791,6 +893,41 @@ function createVertexArrayFromMeshInfo(meshInfo) {
 
 }
 
+function createVertexArrayFromMeshInfoUV2(meshInfo) {
+
+    var positions = app.createVertexBuffer(PicoGL.FLOAT, 3, meshInfo.positions);
+    var normals   = app.createVertexBuffer(PicoGL.FLOAT, 3, meshInfo.normals);
+    var tangents  = app.createVertexBuffer(PicoGL.FLOAT, 4, meshInfo.tangents);
+    var texCoords = app.createVertexBuffer(PicoGL.FLOAT, 2, meshInfo.uvs);
+    var lightmapCoords = app.createVertexBuffer(PicoGL.FLOAT, 2, meshInfo.uv2s);
+
+    var vertexArray = app.createVertexArray()
+        .vertexAttributeBuffer(0, positions)
+        .vertexAttributeBuffer(1, normals)
+        .vertexAttributeBuffer(2, texCoords)
+        .vertexAttributeBuffer(3, tangents)
+        .vertexAttributeBuffer(4, lightmapCoords);
+
+    return vertexArray;
+
+}
+
+function createVertexArrayFromMeshInfo(meshInfo) {
+
+    var positions = app.createVertexBuffer(PicoGL.FLOAT, 3, meshInfo.positions);
+    var normals   = app.createVertexBuffer(PicoGL.FLOAT, 3, meshInfo.normals);
+    var tangents  = app.createVertexBuffer(PicoGL.FLOAT, 4, meshInfo.tangents);
+    var texCoords = app.createVertexBuffer(PicoGL.FLOAT, 2, meshInfo.uvs);
+
+    var vertexArray = app.createVertexArray()
+        .vertexAttributeBuffer(0, positions)
+        .vertexAttributeBuffer(1, normals)
+        .vertexAttributeBuffer(2, texCoords)
+        .vertexAttributeBuffer(3, tangents);
+
+    return vertexArray;
+
+}
 
 
 
@@ -849,6 +986,8 @@ function render() {
 
         camera.update();
 
+        debugMoveDynamicObject();
+
 		if (!bakedDirect) {
             renderShadowMap();
         }
@@ -884,7 +1023,7 @@ function render() {
 		if(settings.view_lightmap){
 			renderTextureToScreen(lightMapFramebuffer.colorTextures[0]);
 		}
-		
+
 		if(gilightMapFramebuffer && settings.view_gi_lightmap)
 		{
 			renderTextureToScreen(gilightMapFramebuffer.colorTextures[0]);
@@ -967,8 +1106,8 @@ function renderLightmap() {
 	.drawBackfaces()
 	.clear();
 
-	for (var i = 0, len = meshes.length; i < len; ++i) {
-		var mesh = meshes[i];
+	for (var i = 0, len = staticMeshes.length; i < len; ++i) {
+		var mesh = staticMeshes[i];
 		if (bakedDirect) {
             mesh.lightmapDrawCall
                 .uniform('u_world_from_local', mesh.modelMatrix)
@@ -1007,7 +1146,7 @@ function render_probe_pc_transfrom()
 		.texture('sh_coeffs', probeRadianceFramebuffer.colorTextures[0])
 		.draw();
 	}
-	
+
 }
 
 function render_gi()
@@ -1020,12 +1159,12 @@ function render_gi()
 		.noBlend()
 		.clearColor(0,0,0)
 		.clear();
-		
+
 		GIDrawCall
 		.texture('pc_sh_coeffs', transformPCFramebuffer.colorTextures[0])
 		.texture('rec_sh_coeffs', u_texture).draw();
 	}
-	
+
 }
 
 function render_gi_no_svd()
@@ -1038,7 +1177,7 @@ function render_gi_no_svd()
 		.noBlend()
 		.clearColor(0,0,0)
 		.clear();
-		
+
 		GIDrawCall
 		.texture('probes_sh_coeffs',probeRadianceFramebuffer.colorTextures[0])
 		.texture('rec_sh_coeffs', full_texture).draw();
@@ -1061,27 +1200,42 @@ function renderScene() {
 
 	for (var i = 0, len = meshes.length; i < len; ++i) {
 		var mesh = meshes[i];
-        if (bakedDirect) {
-            mesh.drawCall
-                .uniform('u_world_from_local', mesh.modelMatrix)
-                .uniform('u_view_from_world', camera.viewMatrix)
-                .uniform('u_projection_from_view', camera.projectionMatrix)
-                .uniform('u_light_projection_from_world', lightViewProjection)
-                .texture('u_light_map', lightMap)
-                .texture('u_baked_direct', bakedDirect)
-                .draw();
-        } else {
-            mesh.drawCall
-                .uniform('u_world_from_local', mesh.modelMatrix)
-                .uniform('u_view_from_world', camera.viewMatrix)
-                .uniform('u_projection_from_view', camera.projectionMatrix)
-                .uniform('u_dir_light_color', directionalLight.color)
-                .uniform('u_dir_light_view_direction', dirLightViewDirection)
-                .uniform('u_light_projection_from_world', lightViewProjection)
-                .texture('u_shadow_map', shadowMap)
-                .texture('u_light_map', lightMap)
-                .draw();
+		if (mesh.isDynamic) {
+			mesh.drawCall
+				.uniform('u_world_from_local', mesh.modelMatrix)
+				.uniform('u_view_from_world', camera.viewMatrix)
+				.uniform('u_projection_from_view', camera.projectionMatrix)
+				.uniform('u_dir_light_color', directionalLight.color)
+				.uniform('u_dir_light_view_direction', dirLightViewDirection)
+				.uniform('u_light_projection_from_world', lightViewProjection)
+				.texture('u_shadow_map', shadowMap)
+                .texture('u_probe_sh_texture', probeRadianceFramebuffer.colorTextures[0])
+				.draw();
+
+		} else {
+            if (bakedDirect) {
+                mesh.drawCall
+                    .uniform('u_world_from_local', mesh.modelMatrix)
+                    .uniform('u_view_from_world', camera.viewMatrix)
+                    .uniform('u_projection_from_view', camera.projectionMatrix)
+                    .uniform('u_light_projection_from_world', lightViewProjection)
+                    .texture('u_light_map', lightMap)
+                    .texture('u_baked_direct', bakedDirect)
+                    .draw();
+            } else {
+                mesh.drawCall
+                    .uniform('u_world_from_local', mesh.modelMatrix)
+                    .uniform('u_view_from_world', camera.viewMatrix)
+                    .uniform('u_projection_from_view', camera.projectionMatrix)
+                    .uniform('u_dir_light_color', directionalLight.color)
+                    .uniform('u_dir_light_view_direction', dirLightViewDirection)
+                    .uniform('u_light_projection_from_world', lightViewProjection)
+                    .texture('u_shadow_map', shadowMap)
+                    .texture('u_light_map', lightMap)
+                    .draw();
+            }
 		}
+
 
 	}
 }

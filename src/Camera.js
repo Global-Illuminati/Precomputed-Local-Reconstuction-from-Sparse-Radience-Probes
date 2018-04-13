@@ -171,11 +171,16 @@ Camera.prototype = {
 		// Translation
 		{
 			var keys = this.keys;
-			var translation = vec3.fromValues(
-				Math.sign(keys['d'] + keys['right'] - keys['a'] - keys['left']),
-				Math.sign(keys['space'] - keys['shift']),
-				Math.sign(keys['s'] + keys['down'] - keys['w'] - keys['up'])
-			);
+			// var translation = vec3.fromValues(
+			// 	Math.sign(keys['d'] + keys['right'] - keys['a'] - keys['left']),
+			// 	Math.sign(keys['space'] - keys['shift']),
+			// 	Math.sign(keys['s'] + keys['down'] - keys['w'] - keys['up'])
+			// );
+            var translation = vec3.fromValues(
+                Math.sign(keys['d']  - keys['a']),
+                Math.sign(keys['space'] - keys['shift']),
+                Math.sign(keys['s'] - keys['w'])
+            );
 
 			if (translation[0] != 0 || translation[1] != 0 || translation[2] != 0) {
 
