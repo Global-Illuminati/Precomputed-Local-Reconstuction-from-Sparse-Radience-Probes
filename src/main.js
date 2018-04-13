@@ -1282,8 +1282,8 @@ function renderSceneTexturedByLightMap() {
         .noBlend()
         .clear();
 
-    for (var i = 0, len = meshes.length; i < len; ++i) {
-        var mesh = meshes[i];
+    for (var i = 0, len = staticMeshes.length; i < len; ++i) {
+        var mesh = staticMeshes[i];
         mesh.texturedByLightmapDrawCall
             .uniform('u_world_from_local', mesh.modelMatrix)
             .uniform('u_view_from_world', camera.viewMatrix)
