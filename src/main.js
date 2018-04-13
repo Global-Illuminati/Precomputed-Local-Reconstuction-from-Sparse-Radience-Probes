@@ -437,10 +437,10 @@ function init() {
 	//////////////////////////////////////
 	// Scene setup
 	if (T_SCENE) {
-        // bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
-        //     'magFilter': PicoGL.LINEAR,
-        //     'mipmaps': true,
-        //     'flipY': true});
+        bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
+            'magFilter': PicoGL.LINEAR,
+            'mipmaps': true,
+            'flipY': true});
     }
 
 	directionalLight = new DirectionalLight();
@@ -539,7 +539,7 @@ function init() {
             loadObjectUV2('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
 		}
 
-        {
+        if (false) {
             let m = mat4.create();
             let r = quat.fromEuler(quat.create(), 0, 45, 0);
             let t = vec3.fromValues(0, 1, 0);
@@ -1406,6 +1406,7 @@ function renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap)
         .clear();
 
     probeRadianceDrawCall
+		.uniform('u_num_sh_coeffs_to_render', settings['num_sh_coeffs_to_render'])
         .texture('u_relight_uvs_texture', relight_uvs_texture)
         .texture('u_relight_shs_texture', relight_shs_texture)
 		.texture('u_lightmap', lightmap)
