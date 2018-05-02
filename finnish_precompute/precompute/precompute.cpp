@@ -1,6 +1,6 @@
 
-//#define LIVING_ROOM
 //#define T_SCENE
+#define LIVING_ROOM
 #ifdef T_SCENE
 #define RHO_PROBES 7.0f //15.0f //7.0f//15.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/t_scene/precompute/"
@@ -888,7 +888,7 @@ int main(int argc, char * argv[]) {
 #endif
 
 
-#if 0
+#if 1
 	std::vector<Receiver>receivers;
 
 	{ // generate receivers
@@ -906,10 +906,7 @@ int main(int argc, char * argv[]) {
 	}
 #endif
 
-	if (false) { // compute local transport
-
-		
-
+	if (true) { // compute local transport
 		visibility(probes, &m2);
 	}
 

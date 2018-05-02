@@ -2,7 +2,38 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
+
+
+
 var compressed = false;
+t_scene = {
+	support_radius: 6.0,
+	name: "t_scene",
+	cameraPos: vec3.fromValues(0.0, 17.6906, 0.0),
+	cameraRot: quat.fromEuler(quat.create(), -90, 0,0),
+}
+sponza = {
+	name: "sponza",
+	support_radius:10.0,
+	cameraPos: vec3.fromValues(-15, 3, 0),
+	cameraRot: quat.fromEuler(quat.create(), 15, -90, 0),
+}
+
+living_room = {
+	name: "living_room",
+	support_radius: 10.0,
+	cameraPos: vec3.fromValues(-15, 3, 0),
+	cameraRot: quat.fromEuler(quat.create(), 15, -90, 0),
+}
+
+scene = living_room;
+
+
+
+
+
+
+
 
 var stats;
 var gui;
@@ -92,29 +123,6 @@ var dictionary_coeffs;
 var calcGIShader;
 var applyDictDrawCall;
 var GIDrawCall;
-
-t_scene = {
-	support_radius: 6.0,
-	name: "t_scene",
-	cameraPos: vec3.fromValues(0.0, 17.6906, 0.0),
-	cameraRot: quat.fromEuler(quat.create(), -90, 0,0),
-}
-sponza = {
-	name: "sponza",
-	support_radius:10.0,
-	cameraPos: vec3.fromValues(-15, 3, 0),
-	cameraRot: quat.fromEuler(quat.create(), 15, -90, 0),
-}
-
-living_room = {
-	name: "living_room",
-	support_radius: 10.0,
-	cameraPos: vec3.fromValues(-15, 3, 0),
-	cameraRot: quat.fromEuler(quat.create(), 15, -90, 0),
-}
-
-scene = living_room;
-
 
 
 
@@ -480,7 +488,7 @@ function init() {
 	//////////////////////////////////////
 	// Scene setup
 
-	if (T_SCENE) {
+	if (scene == t_scene) {
         bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
             'magFilter': PicoGL.LINEAR,
             'mipmaps': true,
@@ -679,12 +687,14 @@ function init() {
 	});
 
 	var matrix_loader = new MatrixLoader();
-
-	matrix_loader.load(precompute_folder + "dictionary.matrix", function(dict_matrix){
-		dict = makeTextureFromMatrix1(dict_matrix);
-		setupApplyDictFramebuffer(dict_matrix.cols,1); 
-		console.log(dict_matrix.cols);
-	}, Float32Array);
+	if (compressed)
+	{
+		matrix_loader.load(precompute_folder + "dictionary.matrix", function(dict_matrix){
+			dict = makeTextureFromMatrix1(dict_matrix);
+			setupApplyDictFramebuffer(dict_matrix.cols,1); 
+			console.log(dict_matrix.cols);
+		}, Float32Array);
+	}
 
 	matrix_loader.load( precompute_folder +  "receiver_px_map.imatrix", function(px_map_mat){
 		px_map = px_map_mat;
