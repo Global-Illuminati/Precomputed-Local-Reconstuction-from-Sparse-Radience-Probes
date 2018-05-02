@@ -6,7 +6,7 @@
 #define PRECOMP_ASSET_FOLDER "../../assets/t_scene/precompute/"
 #define OBJ_FILE_PATH "../../assets/t_scene/t_scene.obj"
 #elif defined LIVING_ROOM
-#define RHO_PROBES 15.0f
+#define RHO_PROBES 6.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/living_room/precompute/"
 #define OBJ_FILE_PATH "../../assets/living_room/living_room.obj"
 #else
@@ -786,7 +786,7 @@ int main(int argc, char * argv[]) {
 		// Avoid brute force packing, since it can be unusably slow in some situations.
 		atlas_options.packer_options.witness.packing_quality = 1;
 		atlas_options.packer_options.witness.conservative = false;
-		atlas_options.packer_options.witness.texel_area = 15;// 2; // approx the size we want 
+		atlas_options.packer_options.witness.texel_area = 4;// 15;// 2; // approx the size we want 
 		atlas_options.packer_options.witness.block_align = false;
 		atlas_options.charter_options.witness.max_chart_area = 100;
 
@@ -851,6 +851,11 @@ int main(int argc, char * argv[]) {
 		get_voxel_centers(probe_voxels, &data, probes);
 
 #ifdef T_SCENE
+		reduce_probes(probes, &data, RHO_PROBES);
+
+#elif defined(LIVING_ROOM)
+		AABB center_box = {vec3(0.265, 0.2, 0.2), vec3(0.735, 0.82, 0.75) };
+		remove_noncentral_probes(probes, &data, center_box);
 		reduce_probes(probes, &data, RHO_PROBES);
 #else
 		reduce_probes(probes, &data, RHO_PROBES / 4);
