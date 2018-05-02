@@ -175,6 +175,23 @@ function loadTexture(imageName, options) {
 }
 
 
+function makeSingleColorTexture(color) {
+    var options = {};
+    options['minFilter'] = PicoGL.NEAREST;
+    options['magFilter'] = PicoGL.NEAREST;
+    options['mipmaps'] = false;
+    options['format'] = PicoGL.RGB;
+    options['internalFormat'] = PicoGL.RGB32F;
+    options['type'] = PicoGL.FLOAT;
+    var side = 32;
+    var arr =  [];
+    for (var i = 0; i < side*side; i++) {
+    	arr = arr.concat(color);
+	}
+    var image_data = new Float32Array( arr );
+    return app.createTexture2D(image_data, side, side, options);
+}
+
 
 // num_relight_rays_per_probe * num_probes (RG32F where R,G = u,v coordinates)
 // ex. 100 * 72
@@ -285,6 +302,7 @@ function debugMoveDynamicObject() {
     }
 }
 
+
 function loadDynamicObject(directory, objFilename, mtlFilename, modelMatrix) {
 
     var objLoader = new OBJLoader();
@@ -294,18 +312,28 @@ function loadDynamicObject(directory, objFilename, mtlFilename, modelMatrix) {
 
     objLoader.load(path + objFilename, function(objects) {
         mtlLoader.load(path + mtlFilename, function(materials) {
+        	console.log(objects);
             objects.forEach(function(object) {
 
                 var material = materials[object.material];
-                var diffuseMap  = (material.properties.map_Kd)   ? directory + material.properties.map_Kd   : 'default_diffuse.png';
+                console.log(object.material);
+                console.log(material);
+                // var diffuseMap  = (material.properties.map_Kd)   ? directory + material.properties.map_Kd   : 'default_diffuse.png';
+                var diffuseTexture;
+				if (material.properties.map_Kd) {
+                    diffuseTexture = loadTexture(directory + material.properties.map_Kd);
+                } else {
+					diffuseTexture = makeSingleColorTexture(material.properties.Kd);
+				}
                 var specularMap = (material.properties.map_Ks)   ? directory + material.properties.map_Ks   : 'default_specular.jpg';
                 var normalMap   = (material.properties.map_norm) ? directory + material.properties.map_norm : 'default_normal.jpg';
 
                 var vertexArray = createVertexArrayFromMeshInfo(object);
 
+
                 var drawCall = app.createDrawCall(dynamicShader, vertexArray)
                     .uniformBlock('SceneUniforms', sceneUniforms)
-                    .texture('u_diffuse_map', loadTexture(diffuseMap))
+                    .texture('u_diffuse_map', diffuseTexture)
                     .texture('u_specular_map', loadTexture(specularMap))
                     .texture('u_normal_map', loadTexture(normalMap))
                     .texture('u_probe_pos_texture', probe_pos_texture)
@@ -343,8 +371,14 @@ function loadObjectUV2(directory, objFilename, mtlFilename, modelMatrix) {
 			objects.forEach(function(object) {
 
 				var material = materials[object.material];
-				var diffuseMap  = (material.properties.map_Kd)   ? directory + material.properties.map_Kd   : 'default_diffuse.png';
-				var specularMap = (material.properties.map_Ks)   ? directory + material.properties.map_Ks   : 'default_specular.jpg';
+				// var diffuseMap  = (material.properties.map_Kd)   ? directory + material.properties.map_Kd   : 'default_diffuse.png';
+                var diffuseTexture;
+                if (material.properties.map_Kd) {
+                    diffuseTexture = loadTexture(directory + material.properties.map_Kd);
+                } else {
+                    diffuseTexture = makeSingleColorTexture(material.properties.Kd);
+                }
+                var specularMap = (material.properties.map_Ks)   ? directory + material.properties.map_Ks   : 'default_specular.jpg';
 				var normalMap   = (material.properties.map_norm) ? directory + material.properties.map_norm : 'default_normal.jpg';
 
 				var vertexArray = createVertexArrayFromMeshInfoUV2(object);
@@ -353,21 +387,21 @@ function loadObjectUV2(directory, objFilename, mtlFilename, modelMatrix) {
                 if (bakedDirect) {
                     drawCall = app.createDrawCall(defaultShader, vertexArray)
                         .uniformBlock('SceneUniforms', sceneUniforms)
-                        .texture('u_diffuse_map', loadTexture(diffuseMap));
+                        .texture('u_diffuse_map', diffuseTexture);
 
                     lightMappingDrawCall = app.createDrawCall(lightMapShader, vertexArray)
                         .uniformBlock('SceneUniforms', sceneUniforms)
-                        .texture('u_diffuse_map', loadTexture(diffuseMap));
+                        .texture('u_diffuse_map', diffuseTexture);
                 } else {
                     drawCall = app.createDrawCall(defaultShader, vertexArray)
                         .uniformBlock('SceneUniforms', sceneUniforms)
-                        .texture('u_diffuse_map', loadTexture(diffuseMap))
+                        .texture('u_diffuse_map', diffuseTexture)
                         .texture('u_specular_map', loadTexture(specularMap))
                         .texture('u_normal_map', loadTexture(normalMap));
 
                     lightMappingDrawCall = app.createDrawCall(lightMapShader, vertexArray)
                         .uniformBlock('SceneUniforms', sceneUniforms)
-                        .texture('u_diffuse_map', loadTexture(diffuseMap))
+                        .texture('u_diffuse_map', diffuseTexture)
                         .texture('u_specular_map', loadTexture(specularMap))
                         .texture('u_normal_map', loadTexture(normalMap));
                 }
@@ -377,7 +411,7 @@ function loadObjectUV2(directory, objFilename, mtlFilename, modelMatrix) {
 
 				var texturedByLightmapDrawCall = app.createDrawCall(texturedByLightmapShader, vertexArray)
                     .uniformBlock('SceneUniforms', sceneUniforms)
-                    .texture('u_diffuse_map', loadTexture(diffuseMap))
+                    .texture('u_diffuse_map', diffuseTexture)
                     .texture('u_specular_map', loadTexture(specularMap))
                     .texture('u_normal_map', loadTexture(normalMap));
 				
@@ -445,11 +479,12 @@ function init() {
 
 	//////////////////////////////////////
 	// Scene setup
-	if (scene == t_scene && false) {
-         bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
-             'magFilter': PicoGL.LINEAR,
-             'mipmaps': true,
-             'flipY': true});
+
+	if (T_SCENE) {
+        bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
+            'magFilter': PicoGL.LINEAR,
+            'mipmaps': true,
+            'flipY': true});
     }
 
 	directionalLight = new DirectionalLight();
@@ -561,13 +596,22 @@ function init() {
 		loadObjectUV2(scene.name + '/', scene.name + '.obj_2xuv', scene.name + '.mtl');
 
 
-        {
+        if (false) {
             let m = mat4.create();
             let r = quat.fromEuler(quat.create(), 0, 45, 0);
             let t = vec3.fromValues(0, 1, 0);
             let s = vec3.fromValues(0.06, 0.06, 0.06);
             mat4.fromRotationTranslationScale(m, r, t, s);
             //loadDynamicObject('teapot/', 'teapot.obj', 'default.mtl', m);
+        }
+
+        if (false) {
+            let m = mat4.create();
+            let r = quat.fromEuler(quat.create(), 0, 0, 0);
+            let t = vec3.fromValues(-0.4, 2.8, -7.5);
+            let s = vec3.fromValues(1.5, 1.5, 1.5);
+            mat4.fromRotationTranslationScale(m, r, t, s);
+            loadDynamicObject('living_room/', 'living_room.obj', 'living_room.mtl', m);
         }
 
 
@@ -1456,6 +1500,7 @@ function renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap)
         .clear();
 
     probeRadianceDrawCall
+		.uniform('u_num_sh_coeffs_to_render', settings['num_sh_coeffs_to_render'])
         .texture('u_relight_uvs_texture', relight_uvs_texture)
         .texture('u_relight_shs_texture', relight_shs_texture)
 		.texture('u_lightmap', lightmap)

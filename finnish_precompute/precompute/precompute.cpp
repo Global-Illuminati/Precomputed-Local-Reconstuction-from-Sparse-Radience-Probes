@@ -106,6 +106,7 @@ void write_obj(tinyobj_shape_t *shapes, size_t num_shapes, Mesh *mesh, const cha
 	for (int i = 0; i < mesh->num_verts; i++) {
 		vec2 luv = mesh->lightmap_uv[i];
 		fprintf(f, "vt2 %f %f\n", luv.x(), luv.y());
+
 	}
 
 	int shape_idx = -1;
@@ -185,7 +186,8 @@ vec3 project_onto_triangle(vec3 bc, Triangle &tri) {
 		//point tri[non_zeros[0]] is closest
 		ret(indices_of_positives[0]) = 1.0;
 		return ret;
-	} else if (num_positives == 2) {
+	}
+	else if (num_positives == 2) {
 		// edge between tri[ia] tri[ib] is closest  
 		int ia = indices_of_positives[0];
 		int ib = indices_of_positives[1];
@@ -305,7 +307,7 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 #if 0
 				// haaaaaacky way to try to offset the receivers so that they're not
 				// inside an object. or very close to inside of an object. 
-				 
+
 				vec3 unit = vec3(1, 1, 1);
 				ivec3 voxel_pos = round_to_ivec3(transform_to_voxelspace(pos, voxel_scene));
 				ivec3 min = voxel_pos + ivec3(2, 2, 2);
@@ -313,19 +315,19 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 
 				float min_dist_sq = FLT_MAX;
 				bool is_set = false;
-				for (int x = min.x(); x <= max.x(); x++) 
-				for (int y = min.y(); y <= max.y(); y++) 
-				for (int z = min.z(); z <= max.z(); z++) {
-					if (voxel_is_empty(ivec3(x,y,z),voxel_scene)) {
-						vec3 vx_pos = get_voxel_center(ivec3(x, y, z), voxel_scene);
-						float dist_sq = (vx_pos - pos).squaredNorm();
-						if (dist_sq < min_dist_sq) {
-							min_dist_sq = dist_sq;
-							pos = vx_pos;
+				for (int x = min.x(); x <= max.x(); x++)
+					for (int y = min.y(); y <= max.y(); y++)
+						for (int z = min.z(); z <= max.z(); z++) {
+							if (voxel_is_empty(ivec3(x, y, z), voxel_scene)) {
+								vec3 vx_pos = get_voxel_center(ivec3(x, y, z), voxel_scene);
+								float dist_sq = (vx_pos - pos).squaredNorm();
+								if (dist_sq < min_dist_sq) {
+									min_dist_sq = dist_sq;
+									pos = vx_pos;
+								}
+								is_set = true;
+							}
 						}
-						is_set = true;
-					}
-				}
 #endif
 
 				vec3 norm = apply_baryc(baryc, norm_tri);
@@ -334,6 +336,18 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 			}
 		}
 	}
+
+
+
+
+
+
+
+
+
+
+
+
 
 	int padding_extent = 1;
 	// --- Add padding receivers by creating duplicates of adjacent receivers to empty cells ---
@@ -772,7 +786,7 @@ int main(int argc, char * argv[]) {
 		// Avoid brute force packing, since it can be unusably slow in some situations.
 		atlas_options.packer_options.witness.packing_quality = 1;
 		atlas_options.packer_options.witness.conservative = false;
-		atlas_options.packer_options.witness.texel_area = 2; // approx the size we want 
+		atlas_options.packer_options.witness.texel_area = 15;// 2; // approx the size we want 
 		atlas_options.packer_options.witness.block_align = false;
 		atlas_options.charter_options.witness.max_chart_area = 100;
 
@@ -812,10 +826,8 @@ int main(int argc, char * argv[]) {
 				m2.lightmap_uv[i].y() = output_mesh->vertex_array[i].uv[1];
 				m2.uv[i] = m.uv[v_ref];
 				m2.shape_idx[i] = m.shape_idx[v_ref];
-
 			}
 		}
-
 
 
 		write_obj(shapes, num_shapes, &m2, OBJ_FILE_PATH "_2xuv");
@@ -849,7 +861,7 @@ int main(int argc, char * argv[]) {
 #endif	
 
 		write_probe_data(probes, PRECOMP_ASSET_FOLDER "probes.dat");
-		printf("Probes saved to " PRECOMP_ASSET_FOLDER "probes.dat" );
+		printf("Probes saved to " PRECOMP_ASSET_FOLDER "probes.dat");
 	}
 
 	std::vector<ProbeData> probe_data(probes.size());
@@ -894,7 +906,7 @@ int main(int argc, char * argv[]) {
 	}
 #endif
 
-	{ // compute local transport
+	if (false) { // compute local transport
 
 		
 
