@@ -122,7 +122,7 @@ void main()
 
 	indirectLight /= totalWeight;
 
-    vec3 color = indirectLight;// * 3.14 * 2.0;
+    vec3 color = diffuse * indirectLight;// * 3.14 * 2.0;
 
     // Should probably render this indirect light to a low-res texture instead since it is so slow-varying
 
