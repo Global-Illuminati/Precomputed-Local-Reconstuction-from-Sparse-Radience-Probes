@@ -296,48 +296,39 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 
 
 	GLuint textures[2];
-	check_gl_error();
 	glGenTextures(2, textures);
 	for (int i = 0; i < 2; i++) {
 		glBindTexture(GL_TEXTURE_2D, textures[i]);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ssize, ssize, 0, GL_RGBA, GL_FLOAT, NULL);
 	}
-	check_gl_error();
 
 	glDisable(GL_DEPTH_TEST);
 	for (int i = 0; i < 2; i++) {
 		glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, textures[i], 0);
 	}
-	check_gl_error();
 
 	GLuint DrawBuffer[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
 	glDrawBuffers(2, DrawBuffer);
-	check_gl_error();
 
 	glClearColor(0, 0, 0, 0);
 	glClear(GL_COLOR_BUFFER_BIT);
-	check_gl_error();
+
 
 	glViewport(0, 0, ssize, ssize);
-	check_gl_error();
 
 	check_fbo();
 	glDisable(GL_CULL_FACE);
-	check_gl_error();
 
 	glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, (void *)0);
-
-	check_gl_error();
 
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, 0);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, (void*)(ssize*ssize*sizeof(vec3)));
-	check_gl_error();
 
 	vec3* rec_verts = (vec3 *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
 	vec3* rec_norms  = &rec_verts[ssize*ssize];
-
+	
 	check_gl_error();
 	std::vector<Receiver> ret;
 	for (int x = 0; x < size; x++) {
@@ -371,7 +362,8 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 	glDeleteTextures(2, textures);
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteBuffers(1,&pbo);
-	glDeleteShader(shader);
+	glDeleteProgram(shader);
+	check_gl_error();
 	return ret;
 }
 #pragma optmize("",on)
@@ -464,6 +456,7 @@ std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>p
 
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteRenderbuffers(1, &depth_buffer);
+	check_gl_error();
 	return depth_maps;
 }
 #include <chrono>
