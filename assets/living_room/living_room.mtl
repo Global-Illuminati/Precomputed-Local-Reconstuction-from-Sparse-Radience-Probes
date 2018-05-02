@@ -1,4 +1,4 @@
-# Blender MTL File: 'living_room_new.blend'
+# Blender MTL File: 'living_room_blend2_decimated_0_05.blend'
 # Material Count: 40
 
 newmtl Apple
@@ -10,7 +10,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/apple.jpg
+map_Kd textures\apple.jpg
 
 newmtl BackLight
 Ns 254.901961
@@ -23,7 +23,7 @@ d 1.000000
 illum 2
 
 newmtl BlackMarble
-Ns 19.607843
+Ns 17.647059
 Ka 0.000000 0.000000 0.000000
 Kd 0.000000 0.000000 0.000000
 Ks 0.010000 0.010000 0.010000
@@ -33,7 +33,7 @@ d 1.000000
 illum 2
 
 newmtl BlackWroughtIron
-Ns 1.960784
+Ns 0.000000
 Ka 0.000000 0.000000 0.000000
 Kd 0.080000 0.060000 0.055000
 Ks 0.100000 0.090000 0.090000
@@ -53,7 +53,7 @@ d 1.000000
 illum 2
 
 newmtl Books
-Ns 19.607843
+Ns 17.647059
 Ka 0.000000 0.000000 0.000000
 Kd 1.000000 1.000000 1.000000
 Ks 0.050000 0.050000 0.050000
@@ -61,10 +61,10 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/book-spines.jpg
+map_Kd textures\book-spines.jpg
 
 newmtl CandleHolders
-Ns 13.725490
+Ns 11.764706
 Ka 0.000000 0.000000 0.000000
 Kd 0.000000 0.000000 0.000000
 Ks 0.200000 0.200000 0.200000
@@ -82,7 +82,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/carpet-text3b.jpg
+map_Kd textures\carpet-text3b.jpg
 
 newmtl CeilingLampshade
 Ns 1000.000000
@@ -93,10 +93,10 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 0.500000
 illum 2
-map_Kd textures/Shade-paper.jpg
+map_Kd textures\Shade-paper.jpg
 
 newmtl Ceramic
-Ns 7.843137
+Ns 5.882353
 Ka 0.000000 0.000000 0.000000
 Kd 0.300000 0.300000 0.300000
 Ks 0.100000 0.100000 0.100000
@@ -114,7 +114,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/cushion-green-circles.jpg
+map_Kd textures\cushion-green-circles.jpg
 
 newmtl Cushion1
 Ns 254.901961
@@ -125,7 +125,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/cushion-stripe-purple.jpg
+map_Kd textures\cushion-stripe-purple.jpg
 
 newmtl Cushion3
 Ns 254.901961
@@ -136,7 +136,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/cushion-purple-yellow-stripe.jpg
+map_Kd textures\cushion-purple-yellow-stripe.jpg
 
 newmtl Default
 Ns 254.901961
@@ -167,7 +167,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/wood4.jpg
+map_Kd textures\wood4.jpg
 
 newmtl LampStand
 Ns 9.803922
@@ -188,7 +188,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/shade-stripes.jpg
+map_Kd textures\shade-stripes.jpg
 
 newmtl LargePicture
 Ns 1000.000000
@@ -199,7 +199,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/pic5wide.jpg
+map_Kd textures\pic5wide.jpg
 
 newmtl LoveLettersBack
 Ns 254.901961
@@ -212,7 +212,7 @@ d 1.000000
 illum 2
 
 newmtl Magazine
-Ns 19.607843
+Ns 17.647059
 Ka 0.000000 0.000000 0.000000
 Kd 0.800000 0.791360 0.800000
 Ks 0.050000 0.050000 0.050000
@@ -220,14 +220,16 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/magazine.jpg
+map_Kd textures\magazine.jpg
 
 newmtl None
-Ns 0
+Ns 0.000000
 Ka 0.000000 0.000000 0.000000
-Kd 0.8 0.8 0.8
-Ks 0.8 0.8 0.8
-d 1
+Kd 0.800000 0.800000 0.800000
+Ks 0.800000 0.800000 0.800000
+Ke 0.000000 0.000000 0.000000
+Ni 1.000000
+d 1.000000
 illum 2
 
 newmtl Picture
@@ -239,7 +241,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/picture11-vert.jpg
+map_Kd textures\picture11-vert.jpg
 
 newmtl Picture1
 Ns 1000.000000
@@ -250,7 +252,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/photo1.jpg
+map_Kd textures\photo1.jpg
 
 newmtl Picture2
 Ns 1000.000000
@@ -261,7 +263,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/photo3.jpg
+map_Kd textures\photo3.jpg
 
 newmtl Picture4
 Ns 1000.000000
@@ -272,7 +274,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/photo2.jpg
+map_Kd textures\photo2.jpg
 
 newmtl Picture5
 Ns 1000.000000
@@ -283,7 +285,7 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
-map_Kd textures/photo4.jpg
+map_Kd textures\photo4.jpg
 
 newmtl RadiatorKnobOuter
 Ns 9.803922
@@ -316,7 +318,7 @@ d 1.000000
 illum 2
 
 newmtl RadioPlastic
-Ns 1.960784
+Ns 0.000000
 Ka 0.000000 0.000000 0.000000
 Kd 0.650000 0.570000 0.400000
 Ks 0.200000 0.200000 0.200000
@@ -366,7 +368,7 @@ d 1.000000
 illum 2
 
 newmtl Trim
-Ns 1.960784
+Ns 0.000000
 Ka 0.000000 0.000000 0.000000
 Kd 0.950000 0.950000 0.950000
 Ks 0.040000 0.040000 0.040000
@@ -386,7 +388,7 @@ d 1.000000
 illum 2
 
 newmtl TvScreen
-Ns 1.960784
+Ns 0.000000
 Ka 0.000000 0.000000 0.000000
 Kd 0.010000 0.010000 0.010000
 Ks 0.200000 0.200000 0.200000
@@ -406,7 +408,7 @@ d 1.000000
 illum 2
 
 newmtl WhitePaint
-Ns 1.960784
+Ns 0.000000
 Ka 0.000000 0.000000 0.000000
 Kd 0.950000 0.950000 0.950000
 Ks 0.040000 0.040000 0.040000
