@@ -2,7 +2,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 
-var T_SCENE = true;
+var compressed = false;
 
 var stats;
 var gui;
@@ -17,6 +17,7 @@ var settings = {
 	redraw_global_illumination:false,
 	lightmap_only: false,
 	view_padded: false,
+	view_trans_pc: false,
 };
 
 var sceneSettings = {
@@ -79,27 +80,44 @@ var relight_shs_texture;
 var relight_dirs;
 var relight_dirs_texture;
 var probe_pos_texture;
-var sigma_v_texture;
+var dict;
 
 var u_texture;
 var full_texture;
 
 var px_map;
 var probe_indices;
+var dictionary_coeffs;
 
 var calcGIShader;
-var transformPCProbesDrawCall;
+var applyDictDrawCall;
 var GIDrawCall;
 
-var probe_support_radius_squared;
-
-if (T_SCENE) {
-	let support_radius = 6.0;
-	probe_support_radius_squared = Math.pow(support_radius,2.0);
-} else {
-    let support_radius = 10.0;
-    probe_support_radius_squared = Math.pow(support_radius,2.0);
+t_scene = {
+	support_radius: 6.0,
+	name: "t_scene",
+	cameraPos: vec3.fromValues(0.0, 17.6906, 0.0),
+	cameraRot: quat.fromEuler(quat.create(), -90, 0,0),
 }
+sponza = {
+	name: "sponza",
+	support_radius:10.0,
+	cameraPos: vec3.fromValues(-15, 3, 0),
+	cameraRot: quat.fromEuler(quat.create(), 15, -90, 0),
+}
+
+living_room = {
+	name: "living_room",
+	support_radius: 10.0,
+	cameraPos: vec3.fromValues(-15, 3, 0),
+	cameraRot: quat.fromEuler(quat.create(), 15, -90, 0),
+}
+
+scene = living_room;
+
+
+
+
 
 window.addEventListener('DOMContentLoaded', function () {
 
@@ -292,7 +310,7 @@ function loadDynamicObject(directory, objFilename, mtlFilename, modelMatrix) {
                     .texture('u_normal_map', loadTexture(normalMap))
                     .texture('u_probe_pos_texture', probe_pos_texture)
 					.uniform('u_num_probes', num_probes)
-					.uniform('u_probe_support_radius_squared', probe_support_radius_squared);
+					.uniform('u_probe_support_radius_squared', scene.support_radius * scene.support_radius );
 
 
                 var shadowMappingDrawCall = app.createDrawCall(shadowMapDynamicShader, vertexArray);
@@ -320,6 +338,7 @@ function loadObjectUV2(directory, objFilename, mtlFilename, modelMatrix) {
 	var path = 'assets/' + directory;
 
 	objLoader.load(path + objFilename, function(objects) {
+		console.log(objects);
 		mtlLoader.load(path + mtlFilename, function(materials) {
 			objects.forEach(function(object) {
 
@@ -361,7 +380,7 @@ function loadObjectUV2(directory, objFilename, mtlFilename, modelMatrix) {
                     .texture('u_diffuse_map', loadTexture(diffuseMap))
                     .texture('u_specular_map', loadTexture(specularMap))
                     .texture('u_normal_map', loadTexture(normalMap));
-
+				
 				meshes.push({
 					modelMatrix: modelMatrix || mat4.create(),
 					drawCall: drawCall,
@@ -409,7 +428,7 @@ function init() {
     gui.add(settings, 'redraw_global_illumination');
     gui.add(settings, 'lightmap_only');
     gui.add(settings, 'view_padded');
-
+	gui.add(settings, 'view_trans_pc');
 	//////////////////////////////////////
 	// Basic GL state
 
@@ -422,25 +441,15 @@ function init() {
 
 	var cameraPos, cameraRot;
 
-	if (T_SCENE) {
-        cameraPos = vec3.fromValues(0.0, 17.6906, 0.0);
-        cameraRot = quat.fromEuler(quat.create(), -90, 0,0);
-    } else {
-        cameraPos = vec3.fromValues(-15, 3, 0);
-        cameraRot = quat.fromEuler(quat.create(), 15, -90, 0);
-
-	}
-
-
-	camera = new Camera(cameraPos, cameraRot);
+	camera = new Camera(scene.cameraPos, scene.cameraRot);
 
 	//////////////////////////////////////
 	// Scene setup
-	if (T_SCENE) {
-        // bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
-        //     'magFilter': PicoGL.LINEAR,
-        //     'mipmaps': true,
-        //     'flipY': true});
+	if (scene == t_scene && false) {
+         bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
+             'magFilter': PicoGL.LINEAR,
+             'mipmaps': true,
+             'flipY': true});
     }
 
 	directionalLight = new DirectionalLight();
@@ -467,9 +476,9 @@ function init() {
     shaderLoader.addShaderProgram('shadowMappingDynamic', 'shadow_mapping_dynamic.vert.glsl', 'shadow_mapping.frag.glsl');
     shaderLoader.addShaderProgram('lightMapping', 'direct_lightmap.vert.glsl', 'direct_lightmap.frag.glsl');
     shaderLoader.addShaderProgram('lightMapping_baked_direct', 'direct_lightmap.vert.glsl', 'direct_lightmap_baked_direct.frag.glsl');
-	shaderLoader.addShaderProgram('calc_gi', 'calc_gi.vert.glsl', 'calc_gi.frag.glsl');
-	shaderLoader.addShaderProgram('calc_gi_no_svd', 'calc_gi_no_svd.vert.glsl', 'calc_gi_no_svd.frag.glsl');
-	shaderLoader.addShaderProgram('transform_pc_probes', 'screen_space.vert.glsl', 'transform_pc_probes.frag.glsl');
+	shaderLoader.addShaderProgram('calc_gi', 'calc_gi_dict.vert.glsl', 'calc_gi_dict.frag.glsl');
+	shaderLoader.addShaderProgram('calc_gi_uncompressed', 'calc_gi_uncompressed.vert.glsl', 'calc_gi_uncompressed.frag.glsl');
+	shaderLoader.addShaderProgram('apply_dictionary', 'screen_space.vert.glsl', 'apply_dictionary.frag.glsl');
 
     shaderLoader.addShaderProgram('probeRadiance', 'probe_radiance.vert.glsl', 'probe_radiance.frag.glsl');
     shaderLoader.addShaderProgram('probeVisualizeSH', 'probe_visualize_sh.vert.glsl', 'probe_visualize_sh.frag.glsl');
@@ -477,16 +486,25 @@ function init() {
     shaderLoader.addShaderProgram('texturedByLightmap', 'textured_by_lightmap.vert.glsl', 'textured_by_lightmap.frag.glsl');
     shaderLoader.addShaderProgram('padShader', 'screen_space.vert.glsl', 'padd.frag.glsl');
 
-	var create_gi_draw_call = function()
+	var create_gi_draw_call = function(compressed)
 	{
-		if(px_map && calcGIShader && probe_indices)
+		if(px_map && calcGIShader && probe_indices && (!compressed || dictionary_coeffs))
 		{
 			var buf_px_map = app.createVertexBuffer(PicoGL.INT, 2, px_map.col_major_data);
 			var buf_probe_indices = app.createVertexBuffer(PicoGL.INT, 4, probe_indices.col_major_data)
+			
 			var vertexArray = app.createVertexArray()
 			.vertexIntegerAttributeBuffer(0, buf_px_map)
 			.vertexIntegerAttributeBuffer(1, buf_probe_indices);
+
+			if(compressed)
+			{
+				var buf_dict_coeffs = app.createVertexBuffer(PicoGL.FLOAT_MAT2x4, 4, dictionary_coeffs.col_major_data);
+				vertexArray.vertexAttributeBuffer(2, buf_dict_coeffs);
+			}
+
 			GIDrawCall = app.createDrawCall(calcGIShader, vertexArray, PicoGL.POINTS);
+			console.log('gi_draw_call_creation');
 		}
 	}
 
@@ -524,20 +542,24 @@ function init() {
         shadowMapDynamicShader = makeShader('shadowMappingDynamic', data);
 
 
-		var transformPCProbesShader = makeShader('transform_pc_probes', data);
-		calcGIShader = makeShader('calc_gi_no_svd', data);
-		create_gi_draw_call();
+		var applyDictShader = makeShader('apply_dictionary', data);
+		if(compressed)
+		{
+			calcGIShader = makeShader('calc_gi', data);
+		}
+		else{
+			calcGIShader = makeShader('calc_gi_uncompressed', data);
+		}
+		create_gi_draw_call(compressed);
+		
 
-		transformPCProbesDrawCall = app.createDrawCall(transformPCProbesShader,fullscreenVertexArray);
+		applyDictDrawCall = app.createDrawCall(applyDictShader,fullscreenVertexArray);
 
         var probeRadianceShader = makeShader('probeRadiance', data);
         probeRadianceDrawCall = app.createDrawCall(probeRadianceShader, fullscreenVertexArray);
 
-        if (T_SCENE) {
-            loadObjectUV2('t_scene/', 't_scene.obj_2xuv', 't_scene.mtl');
-		} else {
-            loadObjectUV2('sponza/', 'sponza.obj_2xuv', 'sponza.mtl');
-		}
+		loadObjectUV2(scene.name + '/', scene.name + '.obj_2xuv', scene.name + '.mtl');
+
 
         {
             let m = mat4.create();
@@ -545,7 +567,7 @@ function init() {
             let t = vec3.fromValues(0, 1, 0);
             let s = vec3.fromValues(0.06, 0.06, 0.06);
             mat4.fromRotationTranslationScale(m, r, t, s);
-            loadDynamicObject('teapot/', 'teapot.obj', 'default.mtl', m);
+            //loadDynamicObject('teapot/', 'teapot.obj', 'default.mtl', m);
         }
 
 
@@ -568,7 +590,7 @@ function init() {
  		}
 	}
 
-	var precompute_folder = 'assets/' + (T_SCENE ? 't_scene' : 'sponza') + '/precompute/';
+	var precompute_folder = 'assets/' + scene.name + '/precompute/';
 
 
     var suffix = ""; //"";
@@ -606,8 +628,6 @@ function init() {
             loading_done();
         });
 
-
-
 	dat_loader.load(precompute_folder + "probes.dat", function(value) {
 		probeLocations = value.reduce( (a,b) => a.concat(b) );
 		num_probes = probeLocations.length / 3;
@@ -615,27 +635,39 @@ function init() {
 	});
 
 	var matrix_loader = new MatrixLoader();
-/*
-	matrix_loader.load("assets/precompute/sigma_v.matrix", function(sigma_v){
-		sigma_v_texture = makeTextureFromMatrix1(sigma_v);
-		setupTransformPCFramebuffer(64,1); // num pc components * num shs 
+
+	matrix_loader.load(precompute_folder + "dictionary.matrix", function(dict_matrix){
+		dict = makeTextureFromMatrix1(dict_matrix);
+		setupApplyDictFramebuffer(dict_matrix.cols,1); 
+		console.log(dict_matrix.cols);
 	}, Float32Array);
 
-	matrix_loader.load("assets/precompute/u.matrix", function(u_mat){
-		u_texture = makeTexturefromFloatArr(u_mat.col_major_data);
-		
-		console.log('max_size', u_texture.gl.getParameter(u_texture.gl.MAX_TEXTURE_SIZE));
-	}, Float32Array);
-*/
 	matrix_loader.load( precompute_folder +  "receiver_px_map.imatrix", function(px_map_mat){
 		px_map = px_map_mat;
 		create_gi_draw_call();
 	}, Int32Array);
 
-	matrix_loader.load(precompute_folder +  "probe_indices.imatrix", function(probe_indices_mat){
-		probe_indices=probe_indices_mat;
-		create_gi_draw_call();
-	}, Int16Array);
+	if (compressed)
+	{
+		matrix_loader.load(precompute_folder +  "coeff_idx.imatrix", function(probe_indices_mat){
+			probe_indices = probe_indices_mat;
+			console.log("pim:",	probe_indices_mat);
+			create_gi_draw_call();
+		}, Int16Array);
+
+		matrix_loader.load(precompute_folder +  "coeffs.matrix", function(dictionary_coeff_mat){
+			dictionary_coeffs = dictionary_coeff_mat;
+			create_gi_draw_call();
+		}, Float32Array);
+	}
+	else
+	{
+		matrix_loader.load(precompute_folder +  "probe_indices.imatrix", function(probe_indices_mat){
+			probe_indices=probe_indices_mat;
+			create_gi_draw_call();
+		}, Int16Array);
+	}
+
 
 
 	
@@ -771,8 +803,8 @@ function setupDirectionalLightShadowMapFramebuffer(size) {
 
 }
 
-var transformPCFramebuffer;
-function setupTransformPCFramebuffer(width, height)
+var applyDictionaryFramebuffer;
+function setupApplyDictFramebuffer(width, height)
 {
 
 	var colorBuffer = app.createTexture2D(width, height, {
@@ -785,7 +817,7 @@ function setupTransformPCFramebuffer(width, height)
 		format: PicoGL.DEPTH_COMPONENT
 	});
 
-	transformPCFramebuffer = app.createFramebuffer()
+	applyDictionaryFramebuffer = app.createFramebuffer()
 	.colorTarget(0, colorBuffer)
 	.depthTarget(depthBuffer); 
 	
@@ -1030,12 +1062,17 @@ function render() {
         var lightmap = lightMapFramebuffer.colorTextures[0];
         renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
 
+		renderLightmap();
 		if(settings.redraw_global_illumination)
 		{
-			//render_probe_pc_transfrom();
-			//render_gi();
-			renderLightmap();
-			render_gi_no_svd();
+			if(compressed)
+			{
+				render_apply_dictionary();
+				render_gi();
+			}
+			else{
+				render_gi_uncompressed();
+			}
 		}
 
 
@@ -1067,6 +1104,11 @@ function render() {
 		{
 			renderTextureToScreen(padFBO.colorTextures[0]);
 		}
+
+		if(applyDictionaryFramebuffer && settings.view_trans_pc)
+		{
+			renderTextureToScreen(applyDictionaryFramebuffer.colorTextures[0]);
+		}
 	}
 	picoTimer.end();
 	stats.end();
@@ -1074,8 +1116,6 @@ function render() {
 	if (picoTimer.ready()) {
 		gpuTimePanel.update(picoTimer.gpuTime, 35);
 	}
-
-	//requestAnimationFrame(render);
 
 	var renderDelta = new Date().getTime() - startStamp;
 	setTimeout( function() {
@@ -1169,19 +1209,19 @@ function renderLightmap() {
 	}
 }
 
-function render_probe_pc_transfrom()
+function render_apply_dictionary()
 {
-	if(sigma_v_texture && transformPCFramebuffer && probeRadianceFramebuffer && transformPCProbesDrawCall)
+	if(dict && applyDictionaryFramebuffer && probeRadianceFramebuffer && applyDictDrawCall)
 	{
-		app.drawFramebuffer(transformPCFramebuffer)
-		.viewport(0, 0, 64, 1)
+		app.drawFramebuffer(applyDictionaryFramebuffer)
+		.viewport(0, 0, 512, 1)
 		.noDepthTest()
 		.noBlend()
 		.clearColor(0,0,0)
 		.clear();
 
-		transformPCProbesDrawCall
-		.texture('sigma_v', sigma_v_texture)
+		applyDictDrawCall
+		.texture('sigma_v', dict)
 		.texture('sh_coeffs', probeRadianceFramebuffer.colorTextures[0])
 		.draw();
 	}
@@ -1190,7 +1230,7 @@ function render_probe_pc_transfrom()
 
 function render_gi()
 {
-	if(transformPCFramebuffer && u_texture && gilightMapFramebuffer)
+	if(applyDictionaryFramebuffer && gilightMapFramebuffer)
 	{
 		app.drawFramebuffer(gilightMapFramebuffer)
 		.viewport(0, 0, giLightMapSize, giLightMapSize)
@@ -1198,15 +1238,24 @@ function render_gi()
 		.noBlend()
 		.clearColor(0,0,0)
 		.clear();
-		
+
 		GIDrawCall
-		.texture('pc_sh_coeffs', transformPCFramebuffer.colorTextures[0])
-		.texture('rec_sh_coeffs', u_texture).draw();
+		.texture('dictionary', applyDictionaryFramebuffer.colorTextures[0])
+		.draw();
+
+		app.drawFramebuffer(padFBO)
+		.viewport(0, 0, giLightMapSize, giLightMapSize)
+		.noDepthTest()
+		.noBlend()
+		.clearColor(0,0,0)
+		.clear();
+
+		padDrawCall.texture('u_texture', gilightMapFramebuffer.colorTextures[0]).draw();
 	}
 	
 }
 
-function render_gi_no_svd()
+function render_gi_uncompressed()
 {
 	if(probeRadianceFramebuffer && full_texture && gilightMapFramebuffer)
 	{
@@ -1227,6 +1276,7 @@ function render_gi_no_svd()
 		.noBlend()
 		.clearColor(0,0,0)
 		.clear();
+
 		padDrawCall.texture('u_texture', gilightMapFramebuffer.colorTextures[0]).draw();
 	}
 }

@@ -42,7 +42,4 @@ void main()
 		}
 	}
 	o_light = vec4(ret,1);
-
-
-
 }

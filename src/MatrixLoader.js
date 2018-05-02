@@ -16,19 +16,19 @@ MatrixLoader.prototype = {
         xhr.responseType = 'arraybuffer';
         xhr.onload = function() {
             if(xhr.status == 200)
-                onload(scope.read(xhr.response,typed_array));
+                onload(scope.read(xhr.response,typed_array,url));
             else 
                 console.error('matrix loader could not load the requested file:',url);
         }
         xhr.send();
     },
 
-    read: function(buffer,typed_array) {
+    read: function(buffer,typed_array,url) {
         var dataview = new DataView(buffer);
         var c = dataview.getInt32(0, true);
         var r = dataview.getInt32(4, true);
         var ret = new typed_array(buffer,8);
-        if(c*r != ret.length) console.error('matrix dimensions and data length is inconsistent');
+        if(c*r != ret.length) console.error('matrix dimensions and data length is inconsistent. Tried to load:' + url);
         return {col_major_data:ret,cols:c,rows:r};
     },
 }

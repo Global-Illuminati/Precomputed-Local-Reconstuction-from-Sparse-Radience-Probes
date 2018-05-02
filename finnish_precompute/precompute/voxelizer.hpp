@@ -55,6 +55,8 @@ struct Mesh {
 	int num_indices;
 	vec3 *normals;
 	vec2 *lightmap_uv;
+	vec2 *uv;
+	int  *shape_idx; // store one idx per vertex, not really efficeient but meeehh
 };
 
 

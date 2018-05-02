@@ -310,7 +310,7 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 	}
 	check_gl_error();
 
-	GLuint DrawBuffer[2] = { GL_COLOR_ATTACHMENT0,GL_COLOR_ATTACHMENT1 };
+	GLuint DrawBuffer[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
 	glDrawBuffers(2, DrawBuffer);
 	check_gl_error();
 
@@ -377,22 +377,17 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 #pragma optmize("",on)
 
 
-void store_matrix(Eigen::MatrixXf mat, char *path) {
-	FILE *file = fopen(path, "wb");
-
+void store_matrix(Eigen::MatrixXf mat, FILE *file) {
 	int w = mat.cols();
 	int h = mat.rows();
 
 	fwrite(&w, sizeof(w), 1, file);
 	fwrite(&h, sizeof(h), 1, file);
-	
+
 	fwrite(mat.data(), sizeof(float), mat.size(), file);
-	fclose(file);
 }
 
-void store_matrixi(Eigen::Matrix<int16_t,Eigen::Dynamic,Eigen::Dynamic> mat, char *path) {
-	FILE *file = fopen(path, "wb");
-
+void store_matrixi(MatrixXi16 mat, FILE *file) {
 	int w = mat.cols();
 	int h = mat.rows();
 
@@ -400,8 +395,20 @@ void store_matrixi(Eigen::Matrix<int16_t,Eigen::Dynamic,Eigen::Dynamic> mat, cha
 	fwrite(&h, sizeof(h), 1, file);
 
 	fwrite(mat.data(), sizeof(short), mat.size(), file);
+}
+
+void store_matrix(Eigen::MatrixXf mat, char *path) {
+	FILE *file = fopen(path, "wb");
+	store_matrix(mat, file);
 	fclose(file);
 }
+
+void store_matrixi(MatrixXi16 mat, char *path) {
+	FILE *file = fopen(path, "wb");
+	store_matrixi(mat, file);
+	fclose(file);
+}
+
 #pragma optimize("", off);
 
 // assumes that the currently bound vao is the entire scene to be rendered.
@@ -677,20 +684,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std:
 	store_matrix(full_mat_nz, PRECOMP_ASSET_FOLDER "full_nz.matrix");
 	store_matrixi(probe_indices, PRECOMP_ASSET_FOLDER "probe_indices.imatrix");
 
-	coeff_matrix.setFromTriplets(coefficients.begin(), coefficients.end());
-	store_matrix(coeff_matrix.transpose().toDense(), PRECOMP_ASSET_FOLDER "full_matrix.matrix");
-
-	RedSVD::RedSVD<Eigen::SparseMatrix<float>> s;
-	s.compute(coeff_matrix, 64);
-
-	//transpose to store stuff adjecently
-	store_matrix(s.matrixU().transpose(), PRECOMP_ASSET_FOLDER "u.matrix");
-
-	auto sigma = Eigen::DiagonalMatrix<float, Eigen::Dynamic>(s.singularValues()).toDenseMatrix();
-	auto V = Eigen::MatrixXf(s.matrixV());
-	auto SV = sigma*V.transpose();
-	store_matrix(SV, PRECOMP_ASSET_FOLDER "sigma_v.matrix");
-
+	//coeff_matrix.setFromTriplets(coefficients.begin(), coefficients.end());
 
 	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
 

@@ -1,13 +1,21 @@
 
-#define T_SCENE
-
+//#define LIVING_ROOM
+//#define T_SCENE
 #ifdef T_SCENE
 #define RHO_PROBES 7.0f //15.0f //7.0f//15.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/t_scene/precompute/"
+#define OBJ_FILE_PATH "../../assets/t_scene/t_scene.obj"
+#elif defined LIVING_ROOM
+#define RHO_PROBES 15.0f
+#define PRECOMP_ASSET_FOLDER "../../assets/living_room/precompute/"
+#define OBJ_FILE_PATH "../../assets/living_room/living_room.obj"
 #else
 #define RHO_PROBES 15.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/sponza/precompute/"
+#define OBJ_FILE_PATH "../../assets/sponza/sponza.obj"
 #endif
+
+
 #pragma warning(disable:4996)
 #include "stdafx.h"
 #include "string.h"
@@ -29,6 +37,7 @@ typedef Eigen::Vector2f vec2;
 typedef Eigen::Vector3f vec3;
 typedef Eigen::Vector2i ivec2;
 typedef Eigen::Vector3i ivec3;
+typedef Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic> MatrixXi16;
 
 const char *get_file_data(size_t *data_len, const char *file_path) {
 	FILE *file = fopen(file_path, "rb");
@@ -61,11 +70,16 @@ float max(float a, float b) {
 	return a > b ? a : b;
 }
 
+#include "voxelizer.hpp"
+#include "probe_reducer.hpp"
+#include "ray_tracer.hpp"
+#include "relight_rays.hpp"
+
 // simple write rutine for OBJs, supports the baaare minimum.
 // and of course two uvs ;)
 
 //also fucks up if on vert has multiple uvs... but that shouldn't be super common anyway, albeit obviously allowed in the format..
-void write_obj(tinyobj_attrib_t attr, tinyobj_shape_t *shapes, size_t num_shapes, Atlas_Output_Mesh *light_map_mesh, const char *output_file_name) {
+void write_obj(tinyobj_shape_t *shapes, size_t num_shapes, Mesh *mesh, const char *output_file_name) {
 	FILE *f = fopen(output_file_name, "w");
 	fprintf(f, "# OBJ (ish) File with two set of uvs, vt & vt2\n");
 	fprintf(f, "# Regenerated as part of precomputation chain in Global Illuminati\n");
@@ -73,74 +87,37 @@ void write_obj(tinyobj_attrib_t attr, tinyobj_shape_t *shapes, size_t num_shapes
 	fprintf(f, "# I should fix this up at some point and export using a better format that actually supports multiple uvs...\n");
 	fprintf(f, "# // Daniel\n");
 
-	for (int i = 0; i < attr.num_vertices; i++) {
-		float a = attr.vertices[i * 3 + 0];
-		float b = attr.vertices[i * 3 + 1];
-		float c = attr.vertices[i * 3 + 2];
-
-		fprintf(f, "v %f %f %f\n", a, b, c);
+	for (int i = 0; i < mesh->num_verts; i++) {
+		vec3 v = mesh->verts[i];
+		fprintf(f, "v %f %f %f\n", v.x(), v.y(), v.z());
+	}
+#if 0
+	// we don't support uv2s and normals yet anyway... need to update obj loader
+	for (int i = 0; i < mesh->num_verts; i++) {
+		vec3 n = mesh->normals[i];
+		fprintf(f, "vn %f %f %f\n", n.x(), n.y(), n.z());
+	}
+#endif
+	for (int i = 0; i < mesh->num_verts; i++) {
+		vec2 uv = mesh->uv[i];
+		fprintf(f, "vt %f %f\n", uv.x(), uv.y());
 	}
 
-	for (int i = 0; i < attr.num_texcoords; i++) {
-		float a = attr.texcoords[i * 2 + 0];
-		float b = attr.texcoords[i * 2 + 1];
-
-		fprintf(f, "vt %f %f\n", a, b);
+	for (int i = 0; i < mesh->num_verts; i++) {
+		vec2 luv = mesh->lightmap_uv[i];
+		fprintf(f, "vt2 %f %f\n", luv.x(), luv.y());
 	}
-
-	// light map uvs!
-	for (int i = 0; i < light_map_mesh->vertex_count; i++) {
-		float a = light_map_mesh->vertex_array[i].uv[0];
-		float b = light_map_mesh->vertex_array[i].uv[1];
-		fprintf(f, "vt2 %f %f\n", a, b);
-	}
-
-
-	struct vertex_info {
-		int uv_index;
-		int shape_index;
-	};
-	vertex_info *vertex_info_from_vert = (vertex_info *)malloc(sizeof(vertex_info)*attr.num_vertices);
-	memset(vertex_info_from_vert, 0xff, sizeof(vertex_info)*attr.num_vertices);
-
-
-	// works as long as only single uv per vertex. which should be the norm
-	// but multipe is certainly allowed according to spec so yeah...
-
-	for (int shape_idx = 0; shape_idx < num_shapes; shape_idx++) {
-		tinyobj_shape_t shape = shapes[shape_idx];
-		for (int i = 0; i < shape.length * 3; i++) {
-			auto indices = attr.faces[(shapes[shape_idx].face_offset * 3 + i)];
-
-			if (vertex_info_from_vert[indices.v_idx].uv_index == -1 || vertex_info_from_vert[indices.v_idx].uv_index == indices.vt_idx) {
-				vertex_info_from_vert[indices.v_idx].uv_index = indices.vt_idx;
-				vertex_info_from_vert[indices.v_idx].shape_index = shape_idx;
-			} else {
-				printf("OHH NOOOO! assumptions do not hold, multiple uvs per vert\n");
-				printf("we need to split before generating light map!\n");
-			}
-		}
-	}
-
-
 
 	int shape_idx = -1;
 
-	for (int face_idx = 0; face_idx < light_map_mesh->index_count / 3; face_idx++) {
-		auto new_a_idx = light_map_mesh->index_array[face_idx * 3 + 0];
-		auto new_b_idx = light_map_mesh->index_array[face_idx * 3 + 1];
-		auto new_c_idx = light_map_mesh->index_array[face_idx * 3 + 2];
+	for (int face_idx = 0; face_idx < mesh->num_indices / 3; face_idx++) {
+		
+		int ia = mesh->indices[face_idx*3 + 0];
+		int ib = mesh->indices[face_idx*3 + 1];
+		int ic = mesh->indices[face_idx*3 + 2];
 
-		auto a_idx = light_map_mesh->vertex_array[new_a_idx].xref;
-		auto b_idx = light_map_mesh->vertex_array[new_b_idx].xref;
-		auto c_idx = light_map_mesh->vertex_array[new_c_idx].xref;
-
-		auto a_info = vertex_info_from_vert[a_idx];
-		auto b_info = vertex_info_from_vert[b_idx];
-		auto c_info = vertex_info_from_vert[c_idx];
-
-		if (a_info.shape_index != shape_idx) { // new shape need to output the name and material
-			shape_idx = a_info.shape_index;
+		if (mesh->shape_idx[ia] != shape_idx) { // new shape need to output the name and material
+			shape_idx = mesh->shape_idx[ia];
 			tinyobj_shape_t shape = shapes[shape_idx];
 			fprintf(f, "o %s\n", shape.name);
 			fprintf(f, "usemtl %s\n", shape.material_name);
@@ -148,16 +125,12 @@ void write_obj(tinyobj_attrib_t attr, tinyobj_shape_t *shapes, size_t num_shapes
 		}
 
 		fprintf(f, "f %d/%d//%d %d/%d//%d %d/%d//%d\n",
-			a_idx + 1, a_info.uv_index + 1, new_a_idx + 1,
-			b_idx + 1, b_info.uv_index + 1, new_b_idx + 1,
-			c_idx + 1, c_info.uv_index + 1, new_c_idx + 1);
+			ia + 1, ia + 1, ia + 1,
+			ib + 1, ib + 1, ib + 1,
+			ic + 1, ic + 1, ic + 1);
 	}
 	fclose(f);
 }
-#include "voxelizer.hpp"
-#include "probe_reducer.hpp"
-#include "ray_tracer.hpp"
-#include "relight_rays.hpp"
 
 iAABB2 transform_to_pixel_space(AABB2 bounding_box, Atlas_Output_Mesh *mesh) {
 	iAABB2 ret;
@@ -234,6 +207,7 @@ vec3 project_onto_triangle(vec3 bc, Triangle &tri) {
 ivec3 round_to_ivec3(vec3 p) {
 	return (p + vec3(0.5, 0.5, 0.5)).cast<int>();
 }
+
 
 #include <set>;
 
@@ -486,7 +460,7 @@ void resize_thekla_atlas(Atlas_Output_Mesh *light_map_mesh, float rescaleFactor)
 
 
 #include "visibility.hpp"
-
+#include "smooth_dictionary_learning.hpp"
 
 Eigen::MatrixXf load_matrix(char *file) {
 	FILE *f = fopen(file, "rb");
@@ -499,63 +473,157 @@ Eigen::MatrixXf load_matrix(char *file) {
 	fread(data, sizeof(float), cols*rows, f);
 	fclose(f);
 
-	return Eigen::Map<Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic>>(data, rows, cols);
+	return Eigen::Map<Eigen::MatrixXf>(data, rows, cols);
 }
 
+
+MatrixXi16 load_imatrix(char *file) {
+	FILE *f = fopen(file, "rb");
+	int cols, rows;
+
+	fread(&cols, sizeof(int), 1, f);
+	fread(&rows, sizeof(int), 1, f);
+
+	int16_t *data = (int16_t *)malloc(cols*rows * sizeof(int));
+	fread(data, sizeof(int16_t), cols*rows, f);
+	fclose(f);
+
+	return Eigen::Map<MatrixXi16>(data, rows, cols);
+}
+
+#pragma optimize("",off)
 // No longer neccessary
 // produces full_nz and probe_indices from full_matrix
 // atleast keep until we verify that the direct export works.
-void remove_zeros_from_matrix() {
-	auto full = load_matrix("../../assets/precompute/full_matrix.matrix");
-	Eigen::MatrixXf mat(8 * 16, full.cols());
-	Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic> probe_indices(8, full.cols());
-	probe_indices.fill(-1);
 
-	for (int r = 0; r < full.cols(); r++) {
-		int num_visible = 0;
-		for (int p = 0; p < full.rows() / 16; p++) {
-			bool probe_visible = false;
-			for (int sh = 0; sh < 16; sh++) {
-				if (full(p * 16 + sh, r) != 0.0f) {
-					probe_visible = true;
+void recompute_matrix_factorization() {
+	auto full_mat_nz = load_matrix(PRECOMP_ASSET_FOLDER "full_nz.matrix");
+	auto probe_indices = load_imatrix(PRECOMP_ASSET_FOLDER "probe_indices.imatrix");
+
+	int num_probes = probe_indices.maxCoeff()+1;
+	int num_receivers = probe_indices.cols();
+	int col_length = probe_indices.rows();
+	Eigen::MatrixXf full(num_probes * 16, num_receivers);
+	full.setZero();
+
+	int rec_index=0;
+	for (int i = 0; i < num_receivers; i++) {
+		bool non_zero = false;
+		for (int c = 0; c < col_length; c++) {
+			int16_t probe = probe_indices(c, i);
+			if (probe == -1)continue;
+
+			auto src = &full_mat_nz(c * 16, i);
+			for (int i = 0; i < 16; i++) {
+				if (src[i] != 0) {
+					non_zero = true;
 					break;
 				}
 			}
-			if (probe_visible) {
-				for (int sh = 0; sh < 16; sh++) {
-					mat(num_visible * 16 + sh, r) = full(p * 16 + sh, r);
-				}
-				probe_indices(num_visible, r) = p;
-				++num_visible;
-			}
+			auto dst = &full(probe * 16, rec_index);
+			memmove(dst, src, sizeof(float) * 16);
 		}
+		if (non_zero)++rec_index;
 	}
 
-	store_matrix(mat, "../../assets/precompute/full_nz.matrix");
-	store_matrixi(probe_indices, "../../assets/precompute/probe_indices.imatrix");
+	full.conservativeResize(Eigen::NoChange_t(), rec_index);
+	std::vector<Receiver> recs(rec_index);
+	Eigen::SparseMatrix<float> f = full.sparseView();
+	f.makeCompressed();
+	smooth_dictionary_learning(&f, &recs, 0.01f, 1024);
+}
+
+#pragma optimize("",on)
+#include <unordered_map>
+
+template <class T>
+inline void hash_combine(std::size_t& seed, const T& v) {
+	std::hash<T> hasher;
+	seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+}
+
+struct Vert {
+	vec3 vert;
+	vec3 normal;
+	vec2 uv;
+	int shape;
+
+	std::size_t hash(Vert v) const {
+		size_t hash = 0;
+		hash_combine<vec3>(hash, v.vert);
+		hash_combine<vec3>(hash, v.normal);
+		hash_combine<vec2>(hash, v.uv);
+		hash_combine<int>(hash, v.shape);
+		return hash;
+	}
+
+	bool operator==(const Vert &other) const {
+		return (vert == other.vert
+			&& normal == other.normal
+			&& uv == other.uv
+			&& shape == other.shape
+			);
+	}
+};
+
+namespace std {
+	template<>
+	struct hash<Vert> {
+		std::size_t operator()(Vert v) const {
+			size_t hash = 0;
+			hash_combine<vec3>(hash, v.vert);
+			hash_combine<vec3>(hash, v.normal);
+			hash_combine<vec2>(hash, v.uv);
+			hash_combine<int>(hash, v.shape);
+			return hash;
+		}
+	};
+	template<>
+	struct hash<vec3> {
+		std::size_t operator()(vec3 v) const {
+			size_t hash = 0;
+			hash_combine<float>(hash, v.x());
+			hash_combine<float>(hash, v.y());
+			hash_combine<float>(hash, v.z());
+			return hash;
+		}
+	};
+	template<>
+	struct hash<vec2> {
+		std::size_t operator()(vec2 v) const {
+			size_t hash = 0;
+			hash_combine<float>(hash, v.x());
+			hash_combine<float>(hash, v.y());
+			return hash;
+		}
+	};
 }
 
 
+
 int main(int argc, char * argv[]) {
+
+#if 0
+	recompute_matrix_factorization();
+	{
+		Eigen::MatrixXf m(40,20);
+		m.setRandom();
+		std::vector<Receiver> recs(m.cols());
+		Eigen::SparseMatrix<float> f = m.sparseView();
+		smooth_dictionary_learning(&f, &recs, 0.01, 60);
+		int q = 0;
+	}
+#endif
+
 	tinyobj_attrib_t attr;
 	tinyobj_shape_t* shapes = NULL;
 	size_t num_shapes;
 	tinyobj_material_t* materials = NULL;
 	size_t num_materials;
 
-	//remove_zeros_from_matrix();
-
-#ifdef T_SCENE
-	const char *obj_file_path = "../../assets/t_scene/t_scene.obj";
-#else
-	const char *obj_file_path = "../../assets/sponza/sponza.obj";
-#endif
-	//
-	//const char *obj_file_path = "A:/sphere_ico.obj";
-
 	{
 		size_t data_len = 0;
-		const char* data = get_file_data(&data_len, obj_file_path);
+		const char* data = get_file_data(&data_len, OBJ_FILE_PATH);
 		if (data == NULL) {
 			printf("Error loading obj file.\n");
 			return(0);
@@ -572,81 +640,137 @@ int main(int argc, char * argv[]) {
 		free((void *)data);
 	}
 
+
 	Mesh m = {};
 	{ // set up the mesh
 		m.num_verts = attr.num_vertices;
 		m.num_indices = attr.num_faces;
 		m.verts = (vec3 *)attr.vertices;
+		m.normals = (vec3 *)attr.normals;
 
 		int *indices = (int *)malloc(m.num_indices * sizeof(int));
 		for (int i = 0; i < m.num_indices; i++) {
 			indices[i] = attr.faces[i].v_idx;
 		}
 		m.indices = indices;
-		generate_normals(&m);
-	}
-
-	// convert to theklas input format
-	Atlas_Input_Face   *faces = (Atlas_Input_Face  *)malloc(sizeof(Atlas_Input_Face)*attr.num_face_num_verts);
-	Atlas_Input_Vertex *verts = (Atlas_Input_Vertex*)malloc(sizeof(Atlas_Input_Vertex)*attr.num_vertices);
-
-	for (int i = 0; i < attr.num_face_num_verts; i++) {
-		faces[i].vertex_index[0] = attr.faces[i * 3 + 0].v_idx;
-		faces[i].vertex_index[1] = attr.faces[i * 3 + 1].v_idx;
-		faces[i].vertex_index[2] = attr.faces[i * 3 + 2].v_idx;
-
-	}
-
-	for (int i = 0; i < attr.num_vertices; i++) {
-		verts[i] = {};
-		verts[i].position[0] = attr.vertices[i * 3 + 0];
-		verts[i].position[1] = attr.vertices[i * 3 + 1];
-		verts[i].position[2] = attr.vertices[i * 3 + 2];
-		verts[i].first_colocal = i;
-	}
+		if(attr.num_normals == 0) generate_normals(&m);
+		
+		free(m.indices);
 
 
-	{
+		// lazy code
+		// rebuild the mesh form scratch.
+		{
+			
+			std::vector<int> indices;
 
-		tinyobj_attrib_t attr_2;
-		tinyobj_shape_t* shapes_2 = NULL;
-		size_t num_shapes;
-		tinyobj_material_t* materials_2 = NULL;
-		size_t num_materials_2;
+			std::unordered_map<Vert, int> vertex_map;
+			std::vector<Vert> vertices;
 
+			for (int shape_idx = 0; shape_idx < num_shapes; shape_idx++) {
+				tinyobj_shape_t shape = shapes[shape_idx];
+				for (int i = 0; i < shape.length * 3; i++) {
+					auto attr_indices = attr.faces[(shapes[shape_idx].face_offset * 3 + i)];
 
-		size_t data_len = 0;
-		const char* data = get_file_data(&data_len, obj_file_path);
-		if (data == NULL) {
-			printf("Error loading obj file.\n");
-			return(0);
+					int v_idx = attr_indices.v_idx;
+					int vt_idx = attr_indices.vt_idx;
+					int vn_idx = (attr.num_normals == 0) ? vt_idx : attr_indices.vn_idx;
+
+					vec2 uv;
+					uv.x() = attr.texcoords[vt_idx * 2];
+					uv.y() = attr.texcoords[vt_idx * 2 + 1];
+
+					Vert v = {};
+					v.vert = m.verts[v_idx];
+					v.normal = m.normals[vn_idx];
+					v.uv = uv;
+					v.shape = shape_idx;
+					auto it = vertex_map.find(v);
+					if (it != vertex_map.end()) {
+						indices.push_back(it->second);
+					} else {
+						indices.push_back(vertices.size());
+						vertex_map.insert(std::make_pair(v, vertices.size()));
+						vertices.push_back(v);
+					}
+				}
+			}
+
+			m.verts = (vec3 *)malloc(vertices.size() * sizeof(vec3));
+			m.normals = (vec3 *)malloc(vertices.size() * sizeof(vec3));
+			m.uv = (vec2 *)malloc(vertices.size() * sizeof(vec2));
+			m.shape_idx = (int *)malloc(vertices.size() * sizeof(int));
+			m.num_verts = vertices.size();
+			
+			m.indices = (int *)malloc(indices.size() * sizeof(int));
+			m.num_indices = indices.size(); 
+			// why the fuck is this needed. surely we shouldnt change the number of triangles
+			// but appearently shapes doesn't reference all of the triangles... wut?
+			// are we missing something here?
+			memcpy(m.indices, &indices[0], indices.size() * sizeof(int));
+
+			for (int i = 0; i < vertices.size(); i++) {
+				Vert v = vertices[i];
+				m.verts[i] = vertices[i].vert;
+				m.normals[i] = v.normal;
+				m.uv[i] = v.uv;
+				m.shape_idx[i] = v.shape;
+			}
 		}
 
-		unsigned int flags = TINYOBJ_FLAG_TRIANGULATE;
-		int ret = tinyobj_parse_obj(&attr_2, &shapes_2, &num_shapes, &materials_2,
-			&num_materials_2, data, data_len, flags);
-		if (ret != TINYOBJ_SUCCESS) {
-			return 0;
-		}
 	}
 
 
-	Atlas_Input_Mesh input_mesh;
-	input_mesh.vertex_count = attr.num_vertices;
-	input_mesh.vertex_array = verts;
-	input_mesh.face_count = attr.num_faces / 3;
-	input_mesh.face_array = faces;
+
+
+	
+	Mesh m2;
+	
 
 	Atlas_Output_Mesh *output_mesh = NULL;
 #if 1
 	{
+		
+		// convert to theklas input format
+		
+
+		Atlas_Input_Mesh input_mesh;
+		input_mesh.vertex_count = m.num_verts;
+		input_mesh.vertex_array = (Atlas_Input_Vertex*)malloc(sizeof(Atlas_Input_Vertex)*m.num_verts);
+
+		input_mesh.face_count = m.num_indices / 3;
+		input_mesh.face_array = (Atlas_Input_Face  *)malloc(sizeof(Atlas_Input_Face)*m.num_indices/3);
+		
+		for (int i = 0; i < input_mesh.face_count; i++) {
+			input_mesh.face_array[i].vertex_index[0] = m.indices[i * 3 + 0];
+			input_mesh.face_array[i].vertex_index[1] = m.indices[i * 3 + 1];
+			input_mesh.face_array[i].vertex_index[2] = m.indices[i * 3 + 2];
+		}
+
+		for (int i = 0; i < input_mesh.vertex_count; i++) {
+			input_mesh.vertex_array[i] = {};
+			input_mesh.vertex_array[i].position[0] = m.verts[i].x();
+			input_mesh.vertex_array[i].position[1] = m.verts[i].y();
+			input_mesh.vertex_array[i].position[2] = m.verts[i].z();
+			
+			input_mesh.vertex_array[i].normal[0] = m.normals[i].x();
+			input_mesh.vertex_array[i].normal[1] = m.normals[i].y();
+			input_mesh.vertex_array[i].normal[2] = m.normals[i].z();
+			
+			input_mesh.vertex_array[i].uv[0] = m.uv[i].x();
+			input_mesh.vertex_array[i].uv[1] = m.uv[i].y();
+			
+			input_mesh.vertex_array[i].first_colocal = i;
+		}
+		
+
 		// Generate Atlas_Output_Mesh.
 		Atlas_Options atlas_options;
 		atlas_set_default_options(&atlas_options);
 
 
 		// Avoid brute force packing, since it can be unusably slow in some situations.
-		atlas_options.packer_options.witness.packing_quality = 0;
+		atlas_options.packer_options.witness.packing_quality = 1;
 		atlas_options.packer_options.witness.conservative = false;
 		atlas_options.packer_options.witness.texel_area = 2; // approx the size we want 
 		atlas_options.packer_options.witness.block_align = false;
@@ -668,17 +792,36 @@ int main(int argc, char * argv[]) {
 		//printf("Rescale factor: %f\n", rescaleFactor);
 		//resize_thekla_atlas(output_mesh, rescaleFactor);
 
-		printf("in:%d\n", attr.num_faces);
-		printf("out:%d\n", output_mesh->index_count);
+		
+		{
 
-#ifdef T_SCENE
-		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/t_scene/t_scene.obj_2xuv");
-#else
-		write_obj(attr, shapes, num_shapes, output_mesh, "../../assets/sponza/sponza.obj_2xuv");
-#endif
+			m2.num_indices = output_mesh->index_count;
+			m2.indices = output_mesh->index_array;
+			m2.num_verts = output_mesh->vertex_count;
+			m2.verts = (vec3 *)malloc(m2.num_verts * sizeof(vec3));
+			m2.normals = (vec3 *)malloc(m2.num_verts * sizeof(vec3));
+			m2.lightmap_uv = (vec2 *)malloc(m2.num_verts * sizeof(vec2));
+			m2.uv= (vec2 *)malloc(m2.num_verts * sizeof(vec2));
+			m2.shape_idx = (int *)malloc(m2.num_verts * sizeof(int));
+
+			for (int i = 0; i < m2.num_verts; i++) {
+				auto v_ref = output_mesh->vertex_array[i].xref;
+				m2.verts[i] = m.verts[v_ref];
+				m2.normals[i] = m.normals[v_ref];
+				m2.lightmap_uv[i].x() = output_mesh->vertex_array[i].uv[0];
+				m2.lightmap_uv[i].y() = output_mesh->vertex_array[i].uv[1];
+				m2.uv[i] = m.uv[v_ref];
+				m2.shape_idx[i] = m.shape_idx[v_ref];
+
+			}
+		}
 
 
-		//
+
+		write_obj(shapes, num_shapes, &m2, OBJ_FILE_PATH "_2xuv");
+
+		free(input_mesh.face_array);
+		free(input_mesh.vertex_array);
 	}
 #endif
 
@@ -753,21 +896,7 @@ int main(int argc, char * argv[]) {
 
 	{ // compute local transport
 
-		Mesh m2;
-		m2.num_indices = output_mesh->index_count;
-		m2.indices = output_mesh->index_array;
-		m2.num_verts = output_mesh->vertex_count;
-		m2.verts = (vec3 *)malloc(m2.num_verts * sizeof(vec3));
-		m2.normals = (vec3 *)malloc(m2.num_verts * sizeof(vec3));
-		m2.lightmap_uv = (vec2 *)malloc(m2.num_verts * sizeof(vec2));
-
-		for (int i = 0; i < m2.num_verts; i++) {
-			auto v_ref = output_mesh->vertex_array[i].xref;
-			m2.verts[i] = m.verts[v_ref];
-			m2.normals[i] = m.normals[v_ref];
-			m2.lightmap_uv[i].x() = output_mesh->vertex_array[i].uv[0];
-			m2.lightmap_uv[i].y() = output_mesh->vertex_array[i].uv[1];
-		}
+		
 
 		visibility(probes, &m2);
 	}
@@ -776,8 +905,6 @@ int main(int argc, char * argv[]) {
 
 	// Free stuff
 	atlas_free(output_mesh);
-	free(faces);
-	free(verts);
 	tinyobj_attrib_free(&attr);
 	tinyobj_shapes_free(shapes, num_shapes);
 	tinyobj_materials_free(materials, num_materials);

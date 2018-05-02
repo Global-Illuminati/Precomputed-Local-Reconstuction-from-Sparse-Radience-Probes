@@ -20,6 +20,7 @@
     <ClInclude Include="local_transport.hpp" />
     <ClInclude Include="visibility.hpp" />
     <ClInclude Include="relight_rays.hpp" />
+    <ClInclude Include="smooth_dictionary_learning.hpp" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
@@ -34,6 +35,8 @@
     <None Include="normalization.frag" />
     <None Include="spherical_harmonics.frag" />
     <None Include="visibility.frag" />
+    <None Include="comp_recs.vert" />
+    <None Include="comp_recs.frag" />
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="ThirdParty\Eigen\eigen.natvis" />
