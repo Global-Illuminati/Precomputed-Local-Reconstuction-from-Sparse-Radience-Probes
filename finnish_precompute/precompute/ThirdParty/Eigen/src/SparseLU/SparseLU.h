@@ -193,7 +193,7 @@ class SparseLU : public SparseSolverBase<SparseLU<_MatrixType,_OrderingType> >, 
     
     /** \brief Reports whether previous computation was successful.
       *
-      * \returns \c Success if computation was succesful,
+      * \returns \c Success if computation was successful,
       *          \c NumericalIssue if the LU factorization reports a problem, zero diagonal for instance
       *          \c InvalidInput if the input matrix is invalid
       *
@@ -748,7 +748,7 @@ struct SparseLUMatrixUReturnType : internal::no_assignment_operator
       else
       {
         Map<const Matrix<Scalar,Dynamic,Dynamic, ColMajor>, 0, OuterStride<> > A( &(m_mapL.valuePtr()[luptr]), nsupc, nsupc, OuterStride<>(lda) );
-        Map< Matrix<Scalar,Dynamic,Dynamic, ColMajor>, 0, OuterStride<> > U (&(X(fsupc,0)), nsupc, nrhs, OuterStride<>(n) );
+        Map< Matrix<Scalar,Dynamic,Dest::ColsAtCompileTime, ColMajor>, 0, OuterStride<> > U (&(X(fsupc,0)), nsupc, nrhs, OuterStride<>(n) );
         U = A.template triangularView<Upper>().solve(U);
       }
 

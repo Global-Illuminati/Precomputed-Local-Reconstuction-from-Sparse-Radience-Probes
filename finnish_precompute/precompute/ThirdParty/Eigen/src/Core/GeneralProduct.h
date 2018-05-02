@@ -18,17 +18,33 @@ enum {
   Small = 3
 };
 
+// Define the threshold value to fallback from the generic matrix-matrix product
+// implementation (heavy) to the lightweight coeff-based product one.
+// See generic_product_impl<Lhs,Rhs,DenseShape,DenseShape,GemmProduct>
+// in products/GeneralMatrixMatrix.h for more details.
+// TODO This threshold should also be used in the compile-time selector below.
+#ifndef EIGEN_GEMM_TO_COEFFBASED_THRESHOLD
+// This default value has been obtained on a Haswell architecture.
+#define EIGEN_GEMM_TO_COEFFBASED_THRESHOLD 20
+#endif
+
 namespace internal {
 
 template<int Rows, int Cols, int Depth> struct product_type_selector;
 
 template<int Size, int MaxSize> struct product_size_category
 {
-  enum { is_large = MaxSize == Dynamic ||
-                    Size >= EIGEN_CACHEFRIENDLY_PRODUCT_THRESHOLD,
-         value = is_large  ? Large
-               : Size == 1 ? 1
-                           : Small
+  enum {
+    #ifndef EIGEN_CUDA_ARCH
+    is_large = MaxSize == Dynamic ||
+               Size >= EIGEN_CACHEFRIENDLY_PRODUCT_THRESHOLD ||
+               (Size==Dynamic && MaxSize>=EIGEN_CACHEFRIENDLY_PRODUCT_THRESHOLD),
+    #else
+    is_large = 0,
+    #endif
+    value = is_large  ? Large
+          : Size == 1 ? 1
+                      : Small
   };
 };
 
@@ -223,50 +239,65 @@ template<> struct gemv_dense_selector<OnTheRight,ColMajor,true>
       // on, the other hand it is good for the cache to pack the vector anyways...
       EvalToDestAtCompileTime = (ActualDest::InnerStrideAtCompileTime==1),
       ComplexByReal = (NumTraits<LhsScalar>::IsComplex) && (!NumTraits<RhsScalar>::IsComplex),
-      MightCannotUseDest = (ActualDest::InnerStrideAtCompileTime!=1) || ComplexByReal
+      MightCannotUseDest = (!EvalToDestAtCompileTime) || ComplexByReal
     };
-
-    gemv_static_vector_if<ResScalar,ActualDest::SizeAtCompileTime,ActualDest::MaxSizeAtCompileTime,MightCannotUseDest> static_dest;
-
-    const bool alphaIsCompatible = (!ComplexByReal) || (numext::imag(actualAlpha)==RealScalar(0));
-    const bool evalToDest = EvalToDestAtCompileTime && alphaIsCompatible;
-
-    RhsScalar compatibleAlpha = get_factor<ResScalar,RhsScalar>::run(actualAlpha);
-
-    ei_declare_aligned_stack_constructed_variable(ResScalar,actualDestPtr,dest.size(),
-                                                  evalToDest ? dest.data() : static_dest.data());
-
-    if(!evalToDest)
-    {
-      #ifdef EIGEN_DENSE_STORAGE_CTOR_PLUGIN
-      Index size = dest.size();
-      EIGEN_DENSE_STORAGE_CTOR_PLUGIN
-      #endif
-      if(!alphaIsCompatible)
-      {
-        MappedDest(actualDestPtr, dest.size()).setZero();
-        compatibleAlpha = RhsScalar(1);
-      }
-      else
-        MappedDest(actualDestPtr, dest.size()) = dest;
-    }
 
     typedef const_blas_data_mapper<LhsScalar,Index,ColMajor> LhsMapper;
     typedef const_blas_data_mapper<RhsScalar,Index,RowMajor> RhsMapper;
-    general_matrix_vector_product
-        <Index,LhsScalar,LhsMapper,ColMajor,LhsBlasTraits::NeedToConjugate,RhsScalar,RhsMapper,RhsBlasTraits::NeedToConjugate>::run(
-        actualLhs.rows(), actualLhs.cols(),
-        LhsMapper(actualLhs.data(), actualLhs.outerStride()),
-        RhsMapper(actualRhs.data(), actualRhs.innerStride()),
-        actualDestPtr, 1,
-        compatibleAlpha);
+    RhsScalar compatibleAlpha = get_factor<ResScalar,RhsScalar>::run(actualAlpha);
 
-    if (!evalToDest)
+    if(!MightCannotUseDest)
     {
-      if(!alphaIsCompatible)
-        dest += actualAlpha * MappedDest(actualDestPtr, dest.size());
-      else
-        dest = MappedDest(actualDestPtr, dest.size());
+      // shortcut if we are sure to be able to use dest directly,
+      // this ease the compiler to generate cleaner and more optimzized code for most common cases
+      general_matrix_vector_product
+          <Index,LhsScalar,LhsMapper,ColMajor,LhsBlasTraits::NeedToConjugate,RhsScalar,RhsMapper,RhsBlasTraits::NeedToConjugate>::run(
+          actualLhs.rows(), actualLhs.cols(),
+          LhsMapper(actualLhs.data(), actualLhs.outerStride()),
+          RhsMapper(actualRhs.data(), actualRhs.innerStride()),
+          dest.data(), 1,
+          compatibleAlpha);
+    }
+    else
+    {
+      gemv_static_vector_if<ResScalar,ActualDest::SizeAtCompileTime,ActualDest::MaxSizeAtCompileTime,MightCannotUseDest> static_dest;
+
+      const bool alphaIsCompatible = (!ComplexByReal) || (numext::imag(actualAlpha)==RealScalar(0));
+      const bool evalToDest = EvalToDestAtCompileTime && alphaIsCompatible;
+
+      ei_declare_aligned_stack_constructed_variable(ResScalar,actualDestPtr,dest.size(),
+                                                    evalToDest ? dest.data() : static_dest.data());
+
+      if(!evalToDest)
+      {
+        #ifdef EIGEN_DENSE_STORAGE_CTOR_PLUGIN
+        Index size = dest.size();
+        EIGEN_DENSE_STORAGE_CTOR_PLUGIN
+        #endif
+        if(!alphaIsCompatible)
+        {
+          MappedDest(actualDestPtr, dest.size()).setZero();
+          compatibleAlpha = RhsScalar(1);
+        }
+        else
+          MappedDest(actualDestPtr, dest.size()) = dest;
+      }
+
+      general_matrix_vector_product
+          <Index,LhsScalar,LhsMapper,ColMajor,LhsBlasTraits::NeedToConjugate,RhsScalar,RhsMapper,RhsBlasTraits::NeedToConjugate>::run(
+          actualLhs.rows(), actualLhs.cols(),
+          LhsMapper(actualLhs.data(), actualLhs.outerStride()),
+          RhsMapper(actualRhs.data(), actualRhs.innerStride()),
+          actualDestPtr, 1,
+          compatibleAlpha);
+
+      if (!evalToDest)
+      {
+        if(!alphaIsCompatible)
+          dest.matrix() += actualAlpha * MappedDest(actualDestPtr, dest.size());
+        else
+          dest = MappedDest(actualDestPtr, dest.size());
+      }
     }
   }
 };
@@ -329,6 +360,7 @@ template<> struct gemv_dense_selector<OnTheRight,ColMajor,false>
   template<typename Lhs, typename Rhs, typename Dest>
   static void run(const Lhs &lhs, const Rhs &rhs, Dest& dest, const typename Dest::Scalar& alpha)
   {
+    EIGEN_STATIC_ASSERT((!nested_eval<Lhs,1>::Evaluate),EIGEN_INTERNAL_COMPILATION_ERROR_OR_YOU_MADE_A_PROGRAMMING_MISTAKE);
     // TODO if rhs is large enough it might be beneficial to make sure that dest is sequentially stored in memory, otherwise use a temp
     typename nested_eval<Rhs,1>::type actual_rhs(rhs);
     const Index size = rhs.rows();
@@ -342,6 +374,7 @@ template<> struct gemv_dense_selector<OnTheRight,RowMajor,false>
   template<typename Lhs, typename Rhs, typename Dest>
   static void run(const Lhs &lhs, const Rhs &rhs, Dest& dest, const typename Dest::Scalar& alpha)
   {
+    EIGEN_STATIC_ASSERT((!nested_eval<Lhs,1>::Evaluate),EIGEN_INTERNAL_COMPILATION_ERROR_OR_YOU_MADE_A_PROGRAMMING_MISTAKE);
     typename nested_eval<Rhs,Lhs::RowsAtCompileTime>::type actual_rhs(rhs);
     const Index rows = dest.rows();
     for(Index i=0; i<rows; ++i)
@@ -361,10 +394,9 @@ template<> struct gemv_dense_selector<OnTheRight,RowMajor,false>
   *
   * \sa lazyProduct(), operator*=(const MatrixBase&), Cwise::operator*()
   */
-#ifndef __CUDACC__
-
 template<typename Derived>
 template<typename OtherDerived>
+EIGEN_DEVICE_FUNC
 inline const Product<Derived, OtherDerived>
 MatrixBase<Derived>::operator*(const MatrixBase<OtherDerived> &other) const
 {
@@ -394,8 +426,6 @@ MatrixBase<Derived>::operator*(const MatrixBase<OtherDerived> &other) const
   return Product<Derived, OtherDerived>(derived(), other.derived());
 }
 
-#endif // __CUDACC__
-
 /** \returns an expression of the matrix product of \c *this and \a other without implicit evaluation.
   *
   * The returned product will behave like any other expressions: the coefficients of the product will be
@@ -410,7 +440,7 @@ MatrixBase<Derived>::operator*(const MatrixBase<OtherDerived> &other) const
 template<typename Derived>
 template<typename OtherDerived>
 const Product<Derived,OtherDerived,LazyProduct>
-MatrixBase<Derived>::lazyProduct(const MatrixBase<OtherDerived> &other) const
+EIGEN_DEVICE_FUNC MatrixBase<Derived>::lazyProduct(const MatrixBase<OtherDerived> &other) const
 {
   enum {
     ProductIsValid =  Derived::ColsAtCompileTime==Dynamic

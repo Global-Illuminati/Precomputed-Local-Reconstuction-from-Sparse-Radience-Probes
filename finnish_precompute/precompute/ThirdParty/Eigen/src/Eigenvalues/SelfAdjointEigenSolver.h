@@ -337,7 +337,7 @@ template<typename _MatrixType> class SelfAdjointEigenSolver
 
     /** \brief Reports whether previous computation was successful.
       *
-      * \returns \c Success if computation was succesful, \c NoConvergence otherwise.
+      * \returns \c Success if computation was successful, \c NoConvergence otherwise.
       */
     EIGEN_DEVICE_FUNC
     ComputationInfo info() const
@@ -414,7 +414,8 @@ SelfAdjointEigenSolver<MatrixType>& SelfAdjointEigenSolver<MatrixType>
 
   if(n==1)
   {
-    m_eivalues.coeffRef(0,0) = numext::real(matrix.diagonal()[0]);
+    m_eivec = matrix;
+    m_eivalues.coeffRef(0,0) = numext::real(m_eivec.coeff(0,0));
     if(computeEigenvectors)
       m_eivec.setOnes(n,n);
     m_info = Success;

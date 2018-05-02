@@ -1,0 +1,14 @@
+﻿  context.c
+  init.c
+  input.c
+  monitor.c
+  window.c
+  win32_init.c
+  win32_monitor.c
+  win32_time.c
+  win32_tls.c
+  win32_window.c
+  winmm_joystick.c
+  wgl_context.c
+  Generating Code...
+  glfw.vcxproj -> L:\glfw-3.1.2\make\src\RelWithDebInfo\glfw3.lib
