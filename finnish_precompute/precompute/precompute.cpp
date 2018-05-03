@@ -1,6 +1,6 @@
 
-//#define T_SCENE
-#define LIVING_ROOM
+#define T_SCENE
+//#define LIVING_ROOM
 #ifdef T_SCENE
 #define RHO_PROBES 7.0f //15.0f //7.0f//15.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/t_scene/precompute/"
@@ -688,7 +688,7 @@ int main(int argc, char * argv[]) {
 
 					int v_idx = attr_indices.v_idx;
 					int vt_idx = attr_indices.vt_idx;
-					int vn_idx = (attr.num_normals == 0) ? vt_idx : attr_indices.vn_idx;
+					int vn_idx = (attr.num_normals == 0) ? v_idx : attr_indices.vn_idx;
 
 					vec2 uv;
 					uv.x() = attr.texcoords[vt_idx * 2];
@@ -766,14 +766,15 @@ int main(int argc, char * argv[]) {
 			input_mesh.vertex_array[i].position[0] = m.verts[i].x();
 			input_mesh.vertex_array[i].position[1] = m.verts[i].y();
 			input_mesh.vertex_array[i].position[2] = m.verts[i].z();
-			
+#if 0
+			// investigate if this improves quality or not!
 			input_mesh.vertex_array[i].normal[0] = m.normals[i].x();
 			input_mesh.vertex_array[i].normal[1] = m.normals[i].y();
 			input_mesh.vertex_array[i].normal[2] = m.normals[i].z();
 			
 			input_mesh.vertex_array[i].uv[0] = m.uv[i].x();
 			input_mesh.vertex_array[i].uv[1] = m.uv[i].y();
-			
+#endif		
 			input_mesh.vertex_array[i].first_colocal = i;
 		}
 		
@@ -786,7 +787,7 @@ int main(int argc, char * argv[]) {
 		// Avoid brute force packing, since it can be unusably slow in some situations.
 		atlas_options.packer_options.witness.packing_quality = 1;
 		atlas_options.packer_options.witness.conservative = false;
-		atlas_options.packer_options.witness.texel_area = 15;// 2; // approx the size we want 
+		atlas_options.packer_options.witness.texel_area = 2; // approx the size we want 
 		atlas_options.packer_options.witness.block_align = false;
 		atlas_options.charter_options.witness.max_chart_area = 100;
 
@@ -864,6 +865,8 @@ int main(int argc, char * argv[]) {
 		printf("Probes saved to " PRECOMP_ASSET_FOLDER "probes.dat");
 	}
 
+
+
 	std::vector<ProbeData> probe_data(probes.size());
 #if 1
 	{
@@ -888,9 +891,8 @@ int main(int argc, char * argv[]) {
 #endif
 
 
-#if 1
+#if 0
 	std::vector<Receiver>receivers;
-
 	{ // generate receivers
 		compute_receiver_locations(output_mesh, m, receivers, &data);
 		FILE *f = fopen(PRECOMP_ASSET_FOLDER "receiver_px_map.imatrix", "wb");
@@ -909,8 +911,6 @@ int main(int argc, char * argv[]) {
 	if (true) { // compute local transport
 		visibility(probes, &m2);
 	}
-
-
 
 	// Free stuff
 	atlas_free(output_mesh);
