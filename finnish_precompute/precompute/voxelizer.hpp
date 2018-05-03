@@ -35,6 +35,8 @@ ivec2 ceil2(vec2 v) {
 
 #ifdef T_SCENE
 #define VOXEL_RES 20
+#elif defined(LIVING_ROOM)
+#define VOXEL_RES 45
 #else
 #define VOXEL_RES 32
 #endif
@@ -172,6 +174,8 @@ void voxelize_scene(Mesh mesh, VoxelScene *data) {
 
 #ifdef T_SCENE
 	data->scene_bounds = add_padding(data->scene_bounds, vec3(0.1f, 0.05f, 0.1f)); // Add padding to make sure the seeds start outside the mesh
+#elif defined(LIVING_ROOM)
+	data->scene_bounds = add_padding(data->scene_bounds, vec3(0.4f, 0.2f, 0.4f)); // Add padding to make sure the seeds start outside the mesh
 #endif	
 
 	data->voxel_res = VOXEL_RES;

@@ -5,6 +5,7 @@
 #include <cmath>
 #include <numeric>
 #include <assert.h>
+#include <functional> // for unary_function
 
 struct ProbeElement {
 	vec3 position;
@@ -148,4 +149,36 @@ void write_probe_data(const std::vector<vec3> &probes, char *file_path) {
 		fprintf(f, "%f %f %f\n", probe[0], probe[1], probe[2]);
 	}
 	fclose(f);
+}
+
+
+bool isInside(const vec3 &point, AABB box) {
+	return point.x() >= box.min.x() && point.y() >= box.min.y() && point.z() >= box.min.z() && point.x() <= box.max.x() && point.y() <= box.max.y() && point.z() <= box.max.z();
+}
+
+/**
+Removes probes outside the specified box, with each dimension specified between 0.0 and 1.0
+*/
+void remove_noncentral_probes(std::vector<vec3> &probes, VoxelScene *scene, AABB box) {
+	printf("probes.size() = %d\n", probes.size());
+	printf("Removing noncentral probes...\n");
+
+	vec3 scene_size = scene->scene_bounds.max - scene->scene_bounds.min;
+	vec3 origin = scene->scene_bounds.min;
+	static AABB absolute_box = {
+		origin + vec3(box.min.x() * scene_size.x(), box.min.y() * scene_size.y(), box.min.z() * scene_size.z()),
+		origin + vec3(box.max.x() * scene_size.x(), box.max.y() * scene_size.y(), box.max.z() * scene_size.z())
+	};
+
+	struct is_outside : public std::unary_function<const vec3&, bool>
+	{
+		bool operator()(const vec3& probe_pos) const
+		{
+			return !isInside(probe_pos, absolute_box);
+		}
+	};
+
+	probes.erase(std::remove_if(probes.begin(), probes.end(), is_outside()), probes.end());
+
+	printf("probes.size() = %d\n", probes.size());
 }
