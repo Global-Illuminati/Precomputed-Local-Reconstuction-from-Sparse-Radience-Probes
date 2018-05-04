@@ -164,7 +164,6 @@ GLuint LoadShaders(const char * vertex_file_path, const char * fragment_file_pat
 
 	glDeleteShader(VertexShaderID);
 	glDeleteShader(FragmentShaderID);
-
 	return ProgramID;
 }
 #include <string>
@@ -207,7 +206,7 @@ DepthCubeMap gen_depth_cubemap() {
 	glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 	for (int i = 0; i < 6; i++) {
-		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA16F,
+		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA32F,
 			cube_map_size, cube_map_size, 0, GL_RGBA, GL_BYTE, NULL);
 	}
 	DepthCubeMap ret;
@@ -272,17 +271,15 @@ void check_fbo() {
 
 
 #pragma optmize("",off)
-std::vector<Receiver> compute_receivers_gpu(int num_indices) {
+std::vector<Receiver> compute_receivers_gpu(int num_indices, GLuint *normals, GLuint *positions) {
 	GLuint shader = LoadShaders("comp_recs.vert", "comp_recs.frag");
 	glUseProgram(shader);
 
 	GLuint fbo;
 	glGenFramebuffers(1, &fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
 	// horrible approximate conservative rasterization
 	// msaa should be better,
-
 	int samples_per_side = 4;
 	int size = 1024;
 	int ssize = samples_per_side * size;
@@ -293,34 +290,35 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 	glGenBuffers(1, &pbo);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
 	glBufferData(GL_PIXEL_PACK_BUFFER, num_pbo_bytes, NULL, GL_STREAM_READ);
-
-
+	
 	GLuint textures[2];
 	glGenTextures(2, textures);
 	for (int i = 0; i < 2; i++) {
 		glBindTexture(GL_TEXTURE_2D, textures[i]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, ssize, ssize, 0, GL_RGBA, GL_FLOAT, NULL);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, ssize, ssize, 0, GL_RGBA, GL_FLOAT, NULL);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, GL_TEXTURE_2D, textures[i], 0);
 	}
-
 	glDisable(GL_DEPTH_TEST);
-	for (int i = 0; i < 2; i++) {
-		glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + i, textures[i], 0);
-	}
-
-	GLuint DrawBuffer[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
-	glDrawBuffers(2, DrawBuffer);
+	glDisable(GL_CULL_FACE);
+	GLuint DrawBuffers[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+	glDrawBuffers(2, DrawBuffers);
 
 	glClearColor(0, 0, 0, 0);
-	glClear(GL_COLOR_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
 
 
 	glViewport(0, 0, ssize, ssize);
 
 	check_fbo();
-	glDisable(GL_CULL_FACE);
 
 	glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, (void *)0);
 
+	std::vector<Receiver> ret;
+	
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, 0);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
@@ -330,7 +328,6 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 	vec3* rec_norms  = &rec_verts[ssize*ssize];
 	
 	check_gl_error();
-	std::vector<Receiver> ret;
 	for (int x = 0; x < size; x++) {
 		for (int y = 0; y < size; y++) {
 			vec3 pos_ack = vec3(0, 0, 0);
@@ -359,10 +356,15 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices) {
 			}
 		}
 	}
-	glDeleteTextures(2, textures);
+	glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+	//glDeleteTextures(2, textures);
+	*positions = textures[0];
+	*normals = textures[1];
+
 	glDeleteFramebuffers(1, &fbo);
 	glDeleteBuffers(1,&pbo);
 	glDeleteProgram(shader);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	check_gl_error();
 	return ret;
 }
@@ -407,7 +409,8 @@ void store_matrixi(MatrixXi16 mat, char *path) {
 std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>probes) {
 	static GLuint shadow_map_program = LoadShaders("shadow_map.vert", "shadow_map.frag");
 	glUseProgram(shadow_map_program);
-
+	glDisable(GL_CULL_FACE);
+	glEnable(GL_DEPTH_TEST);
 	//hmm we might want to calculate this more accuratly
 	//it would improve our accuracy.
 	// oh we have the max radius though. that should be our far plane.
@@ -420,7 +423,6 @@ std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>p
 	GLuint fbo;
 	glGenFramebuffers(1, &fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-
 	// Create the depth buffer
 	GLuint depth_buffer;
 	glGenRenderbuffers(1, &depth_buffer);
@@ -775,8 +777,7 @@ bool init_gl() {
 
 
 #pragma optmize("", off)
-int visibility( std::vector<vec3> probe_locations, Mesh *mesh) {
-
+int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Receiver> recs) {
 
 
 	if (!init_gl()) {
@@ -785,8 +786,9 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh) {
 	}
 
 	load_mesh(mesh);
-	std::vector<Receiver> recs = compute_receivers_gpu(mesh->num_indices);
-
+	GLuint positions, normals;
+	recs = compute_receivers_gpu(mesh->num_indices, &normals, &positions);
+	
 	{
 		FILE *f = fopen(PRECOMP_ASSET_FOLDER "receiver_px_map.imatrix", "wb");
 		int num_recs = recs.size();
@@ -912,12 +914,13 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh) {
 
 	printf("calculating spherical harmonics etc...");
 
-	render_receivers(mesh->num_indices, receivers, depth_maps, probe_locations.size());
-
-
 #if 0
+	render_receivers(mesh->num_indices, receivers, depth_maps, probe_locations.size());
+#else
 	// to visualize shadow map at probe_loc
 	GLuint program = LoadShaders("shader.vert", "shader.frag");
+	//GLuint program = LoadShaders("full_screen.vert", "shader.frag");
+
 	check_gl_error();
 	glUseProgram(program);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -1003,6 +1006,13 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh) {
 		glUniformMatrix4fv(matrix_location, 1, false, mat.data());
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, depth_maps[active_probe].cube_map);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, positions);
+		glActiveTexture(GL_TEXTURE2);
+		glBindTexture(GL_TEXTURE_2D, normals);
+
+		
+		
 		check_gl_error();
 
 		glUniform3fv(light_location, 1, probe_locations[active_probe].data());
@@ -1010,7 +1020,6 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh) {
 		glClearColor(1.0, 0.5, 0.5, 1);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		glDrawElements(GL_TRIANGLES, mesh->num_indices, GL_UNSIGNED_INT, (void *)0);
-
 		check_gl_error();
 		// Swap buffers
 		glfwSwapBuffers(window);
@@ -1054,37 +1063,6 @@ return 0;
 // 
 // Optimally we'd like to sample approximatly accordning to cos(phi) 
 // where phi is the angle to the surface normal
-// ie sample more close to the normal and more sparsely further away
-// since we know that we have a cos(phi) in the lightning equation anyway. (imporance sampling)
-// What we actually do is sample uniformly on the projection plane (near plane, far plane, whatever plane)
-// so to get d/dx a (where x is normalized so that bottom of triangle is of length 1) 
-
-// 
-//      /     |  
-//     /      | 
-//    / a     |  
-//   ---------| x
-//        1
-
-// which is equal to d/dx arctan(x) = 1/(x^2+1)
-
-// ie:
-// let u = gl_FragCoord.xy*2-1;
-// sphere sample area is: 1/(1+x^2) * 1/(1+y^2) where x = u.x/sqrt((u.x^2+1^2)) and y is similar
-// x^2 = u.x^2/(u.x^2+1) 
-// sample area = (u.x^2+1)/(2*u.x^2+1) * (u.y^2+1)/(2*u.y^2+1)
-// and to divide by ~2.807 to normalize (assuming continous, 2.808 is just the integral) 
-// this all assumes 90 degrees of fov
-// max differnece is actually only 4/9, which isn't that bad (not counting the cos)
-// though it could be way better
-// so if we sampled optimally we might get away with using maybe a factor of three or four less samples
-// While this is quite a lot 
-// We will probably be limited by the vertex shader anyway.
-// So reducing the number of texels is probably not that important
-// But we could get more early out then right?
-// Where we'd now probably have to tesselate or some other wierd thing.
-
-
 
 
 
