@@ -1,18 +1,28 @@
 
 #define LIVING_ROOM
 //#define T_SCENE
+//#define SPONZA_TEA_POT
+
 #ifdef T_SCENE
 #define RHO_PROBES 7.0f //15.0f //7.0f//15.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/t_scene/precompute/"
 #define OBJ_FILE_PATH "../../assets/t_scene/t_scene.obj"
+const float lightmap_texel_area = 4;
 #elif defined LIVING_ROOM
-#define RHO_PROBES 6.0f
+#define RHO_PROBES 12.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/living_room/precompute/"
 #define OBJ_FILE_PATH "../../assets/living_room/living_room.obj"
+const float lightmap_texel_area = 18;
+#elif defined SPONZA_TEA_POT
+#define RHO_PROBES 15.0f
+#define PRECOMP_ASSET_FOLDER "../../assets/sponza_with_teapot/precompute/"
+#define OBJ_FILE_PATH "../../assets/sponza_with_teapot/sponza_with_teapot.obj"
+const float lightmap_texel_area = 2;
 #else
 #define RHO_PROBES 15.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/sponza/precompute/"
 #define OBJ_FILE_PATH "../../assets/sponza/sponza.obj"
+const float lightmap_texel_area = 2;
 #endif
 
 
@@ -110,7 +120,9 @@ void write_obj(tinyobj_shape_t *shapes, size_t num_shapes, Mesh *mesh, const cha
 	}
 
 	int shape_idx = -1;
-
+	// @Note, we assume that the faces are sorted in face order 
+	//		  this is not neccessairly true yet.
+	int written_shapes = 0;
 	for (int face_idx = 0; face_idx < mesh->num_indices / 3; face_idx++) {
 		
 		int ia = mesh->indices[face_idx*3 + 0];
@@ -123,6 +135,7 @@ void write_obj(tinyobj_shape_t *shapes, size_t num_shapes, Mesh *mesh, const cha
 			fprintf(f, "o %s\n", shape.name);
 			fprintf(f, "usemtl %s\n", shape.material_name);
 			fprintf(f, "s off\n"); // probably not needed.
+			++written_shapes;
 		}
 
 		fprintf(f, "f %d/%d//%d %d/%d//%d %d/%d//%d\n",
@@ -131,6 +144,7 @@ void write_obj(tinyobj_shape_t *shapes, size_t num_shapes, Mesh *mesh, const cha
 			ic + 1, ic + 1, ic + 1);
 	}
 	fclose(f);
+	if (num_shapes != written_shapes) __debugbreak();
 }
 
 iAABB2 transform_to_pixel_space(AABB2 bounding_box, Atlas_Output_Mesh *mesh) {
@@ -170,7 +184,7 @@ vec3 apply_baryc(vec3 b, Triangle &t) {
 	return t.a *b.x() + t.b * b.y() + t.c * b.z();
 }
 
-#pragma optimize("", off)
+#pragma optimize("", on)
 vec3 project_onto_triangle(vec3 bc, Triangle &tri) {
 
 	int num_positives = 0;
@@ -473,83 +487,11 @@ void resize_thekla_atlas(Atlas_Output_Mesh *light_map_mesh, float rescaleFactor)
 
 
 
-#include "visibility.hpp"
 #include "smooth_dictionary_learning.hpp"
-
-Eigen::MatrixXf load_matrix(char *file) {
-	FILE *f = fopen(file, "rb");
-	int cols, rows;
-
-	fread(&cols, sizeof(int), 1, f);
-	fread(&rows, sizeof(int), 1, f);
-
-	float *data = (float *)malloc(cols*rows * sizeof(float));
-	fread(data, sizeof(float), cols*rows, f);
-	fclose(f);
-
-	return Eigen::Map<Eigen::MatrixXf>(data, rows, cols);
-}
+#include "visibility.hpp"
 
 
-MatrixXi16 load_imatrix(char *file) {
-	FILE *f = fopen(file, "rb");
-	int cols, rows;
-
-	fread(&cols, sizeof(int), 1, f);
-	fread(&rows, sizeof(int), 1, f);
-
-	int16_t *data = (int16_t *)malloc(cols*rows * sizeof(int));
-	fread(data, sizeof(int16_t), cols*rows, f);
-	fclose(f);
-
-	return Eigen::Map<MatrixXi16>(data, rows, cols);
-}
-
-#pragma optimize("",off)
-// No longer neccessary
-// produces full_nz and probe_indices from full_matrix
-// atleast keep until we verify that the direct export works.
-
-void recompute_matrix_factorization() {
-	auto full_mat_nz = load_matrix(PRECOMP_ASSET_FOLDER "full_nz.matrix");
-	auto probe_indices = load_imatrix(PRECOMP_ASSET_FOLDER "probe_indices.imatrix");
-
-	int num_probes = probe_indices.maxCoeff()+1;
-	int num_receivers = probe_indices.cols();
-	int col_length = probe_indices.rows();
-	Eigen::MatrixXf full(num_probes * 16, num_receivers);
-	full.setZero();
-
-	int rec_index=0;
-	for (int i = 0; i < num_receivers; i++) {
-		bool non_zero = false;
-		for (int c = 0; c < col_length; c++) {
-			int16_t probe = probe_indices(c, i);
-			if (probe == -1)continue;
-
-			auto src = &full_mat_nz(c * 16, i);
-			for (int i = 0; i < 16; i++) {
-				if (src[i] != 0) {
-					non_zero = true;
-					break;
-				}
-			}
-			auto dst = &full(probe * 16, rec_index);
-			memmove(dst, src, sizeof(float) * 16);
-		}
-		if (non_zero)++rec_index;
-	}
-
-	full.conservativeResize(Eigen::NoChange_t(), rec_index);
-	std::vector<Receiver> recs(rec_index);
-	Eigen::SparseMatrix<float> f = full.sparseView();
-	f.makeCompressed();
-	smooth_dictionary_learning(&f, &recs, 0.01f, 1024);
-}
-
-#pragma optimize("",on)
 #include <unordered_map>
-
 template <class T>
 inline void hash_combine(std::size_t& seed, const T& v) {
 	std::hash<T> hasher;
@@ -616,18 +558,6 @@ namespace std {
 
 
 int main(int argc, char * argv[]) {
-
-#if 0
-	recompute_matrix_factorization();
-	{
-		Eigen::MatrixXf m(40,20);
-		m.setRandom();
-		std::vector<Receiver> recs(m.cols());
-		Eigen::SparseMatrix<float> f = m.sparseView();
-		smooth_dictionary_learning(&f, &recs, 0.01, 60);
-		int q = 0;
-	}
-#endif
 
 	tinyobj_attrib_t attr;
 	tinyobj_shape_t* shapes = NULL;
@@ -786,8 +716,8 @@ int main(int argc, char * argv[]) {
 
 		// Avoid brute force packing, since it can be unusably slow in some situations.
 		atlas_options.packer_options.witness.packing_quality = 1;
-		atlas_options.packer_options.witness.conservative = false;
-		atlas_options.packer_options.witness.texel_area = 4;// 15;// 2; // approx the size we want 
+		atlas_options.packer_options.witness.conservative = true;
+		atlas_options.packer_options.witness.texel_area = lightmap_texel_area;
 		atlas_options.packer_options.witness.block_align = false;
 		atlas_options.charter_options.witness.max_chart_area = 100;
 
@@ -857,7 +787,7 @@ int main(int argc, char * argv[]) {
 #elif defined(LIVING_ROOM)
 		AABB center_box = {vec3(0.265, 0.2, 0.2), vec3(0.735, 0.82, 0.75) };
 		remove_noncentral_probes(probes, &data, center_box);
-		reduce_probes(probes, &data, RHO_PROBES);
+		reduce_probes(probes, &data, 2.0, 15);
 #else
 		reduce_probes(probes, &data, RHO_PROBES / 4);
 		reduce_probes(probes, &data, RHO_PROBES / 2);

@@ -19,14 +19,23 @@ sponza = {
 	cameraRot: quat.fromEuler(quat.create(), 15, -90, 0),
 }
 
-living_room = {
-	name: "living_room",
-	support_radius: 10.0,
+sponza_tp = {
+	name: "sponza_with_teapot",
+	support_radius:10.0,
 	cameraPos: vec3.fromValues(-15, 3, 0),
 	cameraRot: quat.fromEuler(quat.create(), 15, -90, 0),
 }
 
+
+living_room = {
+	name: "living_room",
+	support_radius: 10.0,
+	cameraPos: vec3.fromValues(0, 2, 5),
+	cameraRot: quat.fromEuler(quat.create(), -15, 0, 0),
+}
+
 scene = living_room;
+use_baked_light = false;
 
 
 
@@ -34,15 +43,14 @@ scene = living_room;
 
 
 
-
-var stats;
+var stats;	
 var gui;
 
 var settings = {
 	target_fps: 60,
 	environment_brightness: 1.5,
     num_sh_coeffs_to_render: 16,
-	rotate_light: true,
+	rotate_light: false,
 	view_gi_lightmap:false,
 	view_lightmap:false,
 	redraw_global_illumination:false,
@@ -488,7 +496,7 @@ function init() {
 	//////////////////////////////////////
 	// Scene setup
 
-	if (scene == t_scene) {
+	if (scene == t_scene && use_baked_light) {
         bakedDirect = loadTexture('t_scene/baked_direct.png', {'minFilter': PicoGL.LINEAR_MIPMAP_NEAREST,
             'magFilter': PicoGL.LINEAR,
             'mipmaps': true,
@@ -499,7 +507,7 @@ function init() {
 	setupDirectionalLightShadowMapFramebuffer(shadowMapSize);
 	setupLightmapFramebuffer(lightMapSize);
 	setupGILightmapFramebuffer(giLightMapSize);
-	setupPaddingFbo(giLightMapSize);
+	if(!compressed) setupPaddingFbo(giLightMapSize);
 
 	setupSceneUniforms();
 
@@ -564,7 +572,7 @@ function init() {
 		environmentDrawCall = app.createDrawCall(environmentShader, fullscreenVertexArray)
 		.texture('u_environment_map', loadTexture('environments/ocean.jpg', {}));
 
-		var probeVertexArray = createSphereVertexArray(0.20, 32, 32);
+		var probeVertexArray = createSphereVertexArray(1.0, 32, 32);
         var unlitShader = makeShader('unlit', data);
         var probeVisualizeSHShader = makeShader('probeVisualizeSH', data);
         var probeVisualizeRawShader = makeShader('probeVisualizeRaw', data);
@@ -695,8 +703,9 @@ function init() {
 			console.log(dict_matrix.cols);
 		}, Float32Array);
 	}
+	var px_map_path = compressed ? "receiver_px_map_comp.imatrix":"receiver_px_map.imatrix" ;
 
-	matrix_loader.load( precompute_folder +  "receiver_px_map.imatrix", function(px_map_mat){
+	matrix_loader.load( precompute_folder +  px_map_path, function(px_map_mat){
 		px_map = px_map_mat;
 		create_gi_draw_call();
 	}, Int32Array);
@@ -839,7 +848,7 @@ function setupDirectionalLightShadowMapFramebuffer(size) {
 
 	var colorBuffer = app.createTexture2D(size, size, {
 		format: PicoGL.RED,
-		internalFormat: PicoGL.R8,
+		internalFormat: PicoGL.R32F,
 	});
 
 	var depthBuffer = app.createTexture2D(size, size, {
@@ -1082,6 +1091,9 @@ function resize() {
 
 	var w = window.innerWidth;
 	var h = window.innerHeight;
+	w = 1920*0.8;
+	h = 1020*0.8;
+
 
 	app.resize(w, h);
 	camera.resize(w, h);
@@ -1229,7 +1241,9 @@ function renderLightmap() {
 	var dirLightViewDirection = directionalLight.viewSpaceDirection(camera);
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
-	var lightMap = padFBO.colorTextures[0];
+	var lightMap;
+	if(compressed) lightMap = gilightMapFramebuffer.colorTextures[0];
+	else lightMap = padFBO.colorTextures[0];
 
 	app.drawFramebuffer(lightMapFramebuffer)
 	.viewport(0, 0, lightMapSize, lightMapSize)
@@ -1268,7 +1282,7 @@ function render_apply_dictionary()
 	if(dict && applyDictionaryFramebuffer && probeRadianceFramebuffer && applyDictDrawCall)
 	{
 		app.drawFramebuffer(applyDictionaryFramebuffer)
-		.viewport(0, 0, 512, 1)
+		.viewport(0, 0, 1024, 1)
 		.noDepthTest()
 		.noBlend()
 		.clearColor(0,0,0)
@@ -1296,15 +1310,6 @@ function render_gi()
 		GIDrawCall
 		.texture('dictionary', applyDictionaryFramebuffer.colorTextures[0])
 		.draw();
-
-		app.drawFramebuffer(padFBO)
-		.viewport(0, 0, giLightMapSize, giLightMapSize)
-		.noDepthTest()
-		.noBlend()
-		.clearColor(0,0,0)
-		.clear();
-
-		padDrawCall.texture('u_texture', gilightMapFramebuffer.colorTextures[0]).draw();
 	}
 	
 }
@@ -1341,7 +1346,15 @@ function renderScene() {
 	var lightViewProjection = directionalLight.getLightViewProjectionMatrix();
 	var shadowMap = shadowMapFramebuffer.depthTexture;
 	//var lightMap = lightMapFramebuffer.colorTextures[0];
-	if(padFBO) lightMap = padFBO.colorTextures[0];
+	if(compressed)
+	{
+		if(gilightMapFramebuffer) lightMap = gilightMapFramebuffer.colorTextures[0];
+	}
+	else{
+		if(padFBO) lightMap = padFBO.colorTextures[0];
+	}
+
+
 	app.defaultDrawFramebuffer()
 	.defaultViewport()
 	.depthTest()

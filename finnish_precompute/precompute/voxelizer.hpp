@@ -168,10 +168,11 @@ bool voxel_is_empty(ivec3 voxel, VoxelScene *scene) {
 	return scene->voxels[voxel.x()][voxel.y()][voxel.z()] == 2;
 }
 
-void voxelize_scene(Mesh mesh, VoxelScene *data) {
+void voxelize_scene(Mesh mesh, VoxelScene *data, AABB *scene_bounds = 0) {
 
-	data->scene_bounds = get_scene_bounds(mesh);
-
+	if(scene_bounds) data->scene_bounds = *scene_bounds;
+	else data->scene_bounds = get_scene_bounds(mesh);
+	
 #ifdef T_SCENE
 	data->scene_bounds = add_padding(data->scene_bounds, vec3(0.1f, 0.05f, 0.1f)); // Add padding to make sure the seeds start outside the mesh
 #elif defined(LIVING_ROOM)
@@ -230,7 +231,10 @@ void flood_fill_voxel_scene(VoxelScene *scene, std::vector<ivec3> &candidate_pro
 	to_process.reserve(scene->voxel_res*scene->voxel_res * 6);
 	int process_index = 0;
 
-
+#ifdef LIVING_ROOM
+	// start from center of scene
+	maybe_enqueue(scene, to_process, { scene->voxel_res / 2,scene->voxel_res / 2, scene->voxel_res / 2 });
+#else
 	// push all faces of voxel scene as start verts
 	for (int x = 0; x < scene->voxel_res; x++) {
 		for (int y = 0; y < scene->voxel_res; y++) {
@@ -242,7 +246,7 @@ void flood_fill_voxel_scene(VoxelScene *scene, std::vector<ivec3> &candidate_pro
 			maybe_enqueue_unchecked(scene, to_process, { x,scene->voxel_res - 1,y });
 		}
 	}
-
+#endif
 
 	ivec3 neighbours[6] = { ivec3(1,0,0),ivec3(-1,0,0),
 							ivec3(0,1,0),ivec3(0,-1,0),

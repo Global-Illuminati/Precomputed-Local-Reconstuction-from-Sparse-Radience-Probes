@@ -101,7 +101,7 @@ int calculate_target_probe_count(VoxelScene *scene, float rho_probes) {
 }
 
 
-void reduce_probes(std::vector<vec3> &probes, VoxelScene *scene, float rho_probes) {
+void reduce_probes(std::vector<vec3> &probes, VoxelScene *scene, float rho_probes, int target_probe_count=-1) {
 	
 	std::vector<ProbeElement> probe_elements(probes.size()); // This does not change after init_probe_elements,
 															 // so indices into this vector don't need to be updated
@@ -110,8 +110,9 @@ void reduce_probes(std::vector<vec3> &probes, VoxelScene *scene, float rho_probe
 	std::vector<int> density_sorting(probes.size()); // The indices of the probes in the probe_elements list
 													 // sorted according to the density of probe_elements[index]
 	std::iota(std::begin(density_sorting), std::end(density_sorting), 0);
-	int target_probe_count = calculate_target_probe_count(scene, rho_probes);
+	if(target_probe_count == -1) target_probe_count = calculate_target_probe_count(scene, rho_probes);
 
+	printf("fuck off!");
 	printf("\nrho_probes = %f\n", rho_probes);
 	printf("target_probe_count = %d\n", target_probe_count);
 

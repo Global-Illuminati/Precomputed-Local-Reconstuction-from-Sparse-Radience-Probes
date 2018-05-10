@@ -32,7 +32,7 @@ float sample_shadow_map_pcf(in sampler2DShadow shadow_map, in vec3 shadow_coord,
 	{
 		for (float y = -side; y <= side; y+=1.0)
 			for (float x = -side; x <= side; x+=1.0)
-				shadow += texture(shadow_map, shadow_coord + vec3(x*texel_size.x,y*texel_size.y,-bias));
+				shadow += texture(shadow_map, shadow_coord + vec3(x*texel_size.x,y*texel_size.y,-0.001));
 		shadow /= (kernel_size*kernel_size);
 	}
 	return shadow;

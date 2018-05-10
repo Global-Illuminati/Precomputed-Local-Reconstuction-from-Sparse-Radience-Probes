@@ -1,10 +1,14 @@
 
 function DirectionalLight(direction, color) {
 
-	this.direction = direction || vec3.fromValues(0.3, -1.0, 0.3);
+	//this.direction = direction || vec3.fromValues(0.3, -1.0, 5.3);
+	//this.direction = direction || vec3.fromValues(0.3, -1.0, 0.3);
+	this.direction = direction || vec3.fromValues(-0.2, -1.0, 0.317);
+
 	vec3.normalize(this.direction, this.direction);
 
-	this.color = color || new Float32Array([1.0, 1.0, 1.0]);
+	this.color = color || new Float32Array([5.0, 5.0, 5.0]);
+	//this.color = color || new Float32Array([2.0, 2.0, 2.0]);
 
 	//
 

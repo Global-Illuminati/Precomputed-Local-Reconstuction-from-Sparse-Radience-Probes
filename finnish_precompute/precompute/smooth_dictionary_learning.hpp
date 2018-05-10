@@ -100,14 +100,16 @@ void update_code(DLState *state, SparseMatrix<float> *mat, int sparsity) {
 	//
 	//  This allows us to *never* compute the full correlation matrix
 
+	
 
 	// gotta do the eval or eigen deferes the eval 
 	// ie for each element we try to extract we do one mm mul lol
+	
 	auto DNT = state->dictionary.colwise().normalized().transpose().eval();
 	VectorXf unnormalization = state->dictionary.colwise().norm();
 	MatrixXf dict_corr = DNT * DNT.transpose();
 	MatrixXf DTD = dict_corr.cwiseProduct(unnormalization*unnormalization.transpose());
-	
+
 
 	// storage space for when we calculate the n most correlated values in each iteration
 	CoeffInfo *most_correleted = (CoeffInfo *)calloc(sparsity, sizeof(CoeffInfo));
@@ -115,20 +117,18 @@ void update_code(DLState *state, SparseMatrix<float> *mat, int sparsity) {
 	typedef Triplet<float> Trip;
 	Trip* coeffs = (Trip *)malloc(sparsity * state->n * sizeof(Trip));
 
-	
-	SparseMatrix<float> atom_atom_correlation 
-		= SparseMatrix<float>(dict_corr.cols(),dict_corr.rows());
-	
+
+	SparseMatrix<float> atom_atom_correlation
+		= SparseMatrix<float>(dict_corr.cols(), dict_corr.rows());
+
 	const int spread = 4;
 	atom_atom_correlation.reserve(VectorXi::Constant(dict_corr.rows(), spread));
 	for (int i = 0; i < dict_corr.cols(); i++) {
 		find_n_largest_magnitude(spread, most_correleted, dict_corr.col(i));
-		
-		VectorXi most_correlated_column_indices = Map<VectorXi, 0, InnerStride<>>
-			(&most_correleted[0].index, spread, InnerStride<>(2));
 
 		for (int j = 0; j < spread; j++)
-			atom_atom_correlation.insert(most_correlated_column_indices(j),i) = 1.0;
+			if (most_correleted[j].value != 0.0)
+				atom_atom_correlation.insert(most_correleted[j].index, i) = 1.0;
 	}
 
 	for (int i = 0; i < state->n; i++) {
@@ -142,12 +142,12 @@ void update_code(DLState *state, SparseMatrix<float> *mat, int sparsity) {
 			Map<VectorXi>(expanded_sparse_code.innerIndexPtr(), expanded_sparse_code.nonZeros());
 
 		VectorXf candidate_correlation = DNT(candidate_atoms, placeholders::all) * mat->col(i);
-		
+
 		find_n_largest_magnitude(sparsity, most_correleted, candidate_correlation);
 
 		VectorXi used_atom_candidate_index = Map<VectorXi, 0, InnerStride<>>
 			(&most_correleted[0].index, sparsity, InnerStride<>(2));
-		
+
 		VectorXi used_atoms = candidate_atoms(used_atom_candidate_index);
 
 		// solve the least squares problem using only the selected atoms
@@ -183,15 +183,23 @@ void update_dictionary(DLState *state, SparseMatrix<float> *mat) {
 		MatrixXf temp_1 = ((B * B.transpose()).toDense() + (D.transpose()*D).cwiseProduct(state->dict_info.c));
 		MatrixXf temp_2 = (*mat*B.transpose() + state->dict_info.kpn * D).transpose().toDense();
 		state->dictionary = temp_1.ldlt().solve(temp_2).transpose();
-	}
-	else {
+	} else {
 		// if k + n is 0 this is just normal MOD aka linear least squares fitting
- 		MatrixXf temp_1 = (B * B.transpose()).toDense();
- 		MatrixXf temp_2 = (*mat*B.transpose()).transpose().toDense();
- 		state->dictionary = temp_1.ldlt().solve(temp_2).transpose();
+		MatrixXf temp_1 = (B * B.transpose()).toDense();
+		MatrixXf temp_2 = (*mat*B.transpose()).transpose().toDense();
+		state->dictionary = temp_1.ldlt().solve(temp_2).transpose();
 	}
-
-
+	
+	// if any atoms is zero (ie from not being used)
+	// we just set it to the next atom + a small pertubation
+	for (int i = 0; i < state->dictionary.cols(); i++) {
+		if (state->dictionary.col(i).isZero()) {
+			auto next_atom = state->dictionary.col((i + 1) % state->k);
+			state->dictionary.col(i).setRandom();
+			state->dictionary.col(i) *= next_atom.norm() / state->dictionary.col(i).norm() * 0.1;
+			state->dictionary.col(i) += next_atom;
+		}
+	}
 }
 #include <random>
 void init_code(DLState *state, int non_zeros) {
@@ -225,19 +233,19 @@ DLState smooth_dictionary_learning(SparseMatrix<float>*mat, std::vector<Receiver
 	state.n = n;
 	state.d = d;
 	state.dictionary = MatrixXf(d, k);
-	init_code(&state, 16);
+	init_code(&state, 8);
 	state.dictionary.setRandom();
-	//state.weights = calc_weights(receivers);
+	state.weights = calc_weights(receivers);
 	state.inv_mat_norm = 1.0 / mat->norm();
 
-	set_dict_info(&state, 0,0);
+	set_dict_info(&state, 0, 0);
 	float rel = -1;
 	int its = 0;
 	float target_err = 0.01;
-
+	//update_dictionary(&state, mat);
 	printf("initialization done!\n");
 	do {
-		update_code(&state, mat, 16);
+		update_code(&state, mat, 8);
 		rel = get_relative_err(&state, mat);
 		printf("err: %d: %.6f\n", its, rel);
 		update_dictionary(&state, mat);

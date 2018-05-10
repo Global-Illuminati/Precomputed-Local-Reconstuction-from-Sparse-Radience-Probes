@@ -164,6 +164,7 @@ GLuint LoadShaders(const char * vertex_file_path, const char * fragment_file_pat
 
 	glDeleteShader(VertexShaderID);
 	glDeleteShader(FragmentShaderID);
+
 	return ProgramID;
 }
 #include <string>
@@ -206,7 +207,7 @@ DepthCubeMap gen_depth_cubemap() {
 	glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexParameterf(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 	for (int i = 0; i < 6; i++) {
-		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA32F,
+		glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGBA16F,
 			cube_map_size, cube_map_size, 0, GL_RGBA, GL_BYTE, NULL);
 	}
 	DepthCubeMap ret;
@@ -270,7 +271,7 @@ void check_fbo() {
 #include "redsvd-h.h"
 
 
-#pragma optmize("",off)
+#pragma optmize("",on)
 std::vector<Receiver> compute_receivers_gpu(int num_indices, GLuint *normals, GLuint *positions) {
 	GLuint shader = LoadShaders("comp_recs.vert", "comp_recs.frag");
 	glUseProgram(shader);
@@ -278,19 +279,21 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices, GLuint *normals, GL
 	GLuint fbo;
 	glGenFramebuffers(1, &fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
 	// horrible approximate conservative rasterization
 	// msaa should be better,
+
 	int samples_per_side = 4;
 	int size = 1024;
 	int ssize = samples_per_side * size;
-	int num_pbo_bytes = ssize*ssize*(sizeof(vec3)*2);
+	int num_pbo_bytes = ssize * ssize*(sizeof(vec3) * 2);
 	check_gl_error();
 
 	GLuint pbo;
 	glGenBuffers(1, &pbo);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
 	glBufferData(GL_PIXEL_PACK_BUFFER, num_pbo_bytes, NULL, GL_STREAM_READ);
-	
+
 	GLuint textures[2];
 	glGenTextures(2, textures);
 	for (int i = 0; i < 2; i++) {
@@ -304,11 +307,11 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices, GLuint *normals, GL
 	}
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
-	GLuint DrawBuffers[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
+	GLuint DrawBuffers[2] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
 	glDrawBuffers(2, DrawBuffers);
 
 	glClearColor(0, 0, 0, 0);
-	glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 
 	glViewport(0, 0, ssize, ssize);
@@ -318,15 +321,15 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices, GLuint *normals, GL
 	glDrawElements(GL_TRIANGLES, num_indices, GL_UNSIGNED_INT, (void *)0);
 
 	std::vector<Receiver> ret;
-	
+
 	glBindTexture(GL_TEXTURE_2D, textures[0]);
 	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, 0);
 	glBindTexture(GL_TEXTURE_2D, textures[1]);
-	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, (void*)(ssize*ssize*sizeof(vec3)));
+	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, (void*)(ssize*ssize * sizeof(vec3)));
 
 	vec3* rec_verts = (vec3 *)glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_ONLY);
-	vec3* rec_norms  = &rec_verts[ssize*ssize];
-	
+	vec3* rec_norms = &rec_verts[ssize*ssize];
+
 	check_gl_error();
 	for (int x = 0; x < size; x++) {
 		for (int y = 0; y < size; y++) {
@@ -335,14 +338,14 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices, GLuint *normals, GL
 			float num_hit = 0.0;
 			for (int dx = 0; dx < samples_per_side; dx++) {
 				for (int dy = 0; dy < samples_per_side; dy++) {
-					int xx = x*samples_per_side + dx;
-					int yy = y*samples_per_side + dy;
+					int xx = x * samples_per_side + dx;
+					int yy = y * samples_per_side + dy;
 
 					vec3 p = rec_verts[yy*ssize + xx];
 					vec3 n = rec_norms[yy*ssize + xx];
 					if (n != p || p != vec3(0, 0, 0)) {
 						norm_ack += n;
-						pos_ack  += p;
+						pos_ack += p;
 						num_hit += 1.0;
 					}
 				}
@@ -362,7 +365,7 @@ std::vector<Receiver> compute_receivers_gpu(int num_indices, GLuint *normals, GL
 	*normals = textures[1];
 
 	glDeleteFramebuffers(1, &fbo);
-	glDeleteBuffers(1,&pbo);
+	glDeleteBuffers(1, &pbo);
 	glDeleteProgram(shader);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	check_gl_error();
@@ -403,7 +406,7 @@ void store_matrixi(MatrixXi16 mat, char *path) {
 	fclose(file);
 }
 
-#pragma optimize("", off);
+#pragma optimize("", on);
 
 // assumes that the currently bound vao is the entire scene to be rendered.
 std::vector<DepthCubeMap> render_probe_depth(int num_indices, std::vector<vec3>probes) {
@@ -473,7 +476,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std:
 	//it would improve our accuracy.
 	// oh we have the max radius though. that should be our far plane.
 	// near should be voxel_size * 0.5, right? Interesting, being to close to a surface would reduce accuracy (for points further away)
-	
+
 	float near_plane = 0.01;
 	mat4 proj = projection(near_plane, 100.0, 1);
 
@@ -485,7 +488,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std:
 	GLuint receiver_pos_uniform_location = glGetUniformLocation(visibility_shader, "receiver_pos");
 	GLuint sh_samples_uniform_location = glGetUniformLocation(visibility_shader, "num_sh_samples");
 
-	int num_pbo_bytes = num_probes_per_rec * receivers.size() * sizeof(float) * num_sh_coeffs; 
+	int num_pbo_bytes = num_probes_per_rec * receivers.size() * sizeof(float) * num_sh_coeffs;
 	GLuint pbo;
 	glGenBuffers(1, &pbo);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo);
@@ -548,14 +551,14 @@ void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std:
 		glUniform1i(sh_samples_uniform_location, sh_samples);
 
 
-		
+
 		// render the visibility 
 		for (int cube_map_index = 0; cube_map_index < 6; cube_map_index++) {
 			for (int i = 0; i < num_probes_per_rec; i++) {
 				glActiveTexture(GL_TEXTURE0 + i);
 				glBindTexture(GL_TEXTURE_CUBE_MAP, receiver->visible_probes[i].depth_cube_map.cube_map);
 			}
-			
+
 			// offset the recevier position by the location to avoid culling neccesary geometry with the near plane
 			// still might be problematic though for positons parallel to the plane 
 			// doesn't work nicely
@@ -591,7 +594,7 @@ void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std:
 				glBindTexture(GL_TEXTURE_2D, visibility[cube_map_index].textures[i + 1]);
 
 				glDrawBuffers(8, DrawBuffers);
-				
+
 				check_fbo();
 				// draws a full screen triangle with vertices overridden by vertex shader
 				glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -644,10 +647,10 @@ void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std:
 
 	int num_coeffs_per_probe = num_sh_coeffs;
 
-	Eigen::SparseMatrix<float> coeff_matrix(receivers.size(),num_probes*num_coeffs_per_probe);
+	Eigen::SparseMatrix<float> coeff_matrix(receivers.size(), num_probes*num_coeffs_per_probe);
 	std::vector<Eigen::Triplet<float>> coefficients;
 
-	Eigen::MatrixXf full_mat_nz(num_probes_per_rec*num_sh_coeffs,receivers.size());
+	Eigen::MatrixXf full_mat_nz(num_probes_per_rec*num_sh_coeffs, receivers.size());
 	Eigen::Matrix<int16_t, Eigen::Dynamic, Eigen::Dynamic> probe_indices(num_probes_per_rec, receivers.size());
 	probe_indices.fill(-1);
 
@@ -665,13 +668,13 @@ void render_receivers(int num_indices, std::vector<ReceiverData> receivers, std:
 					receiver_index,
 					receivers[receiver_index].visible_probes[probe_index].index * num_coeffs_per_probe + i,
 					coeff
-				});
+					});
 			}
 			probe_indices(probe_index, receiver_index) = receivers[receiver_index].visible_probes[probe_index].index;
 		}
 	}
 
-	if (num_handled_coefficients != num_written_shs) 
+	if (num_handled_coefficients != num_written_shs)
 		__debugbreak(); // we fucked up the transfer to/out of the pbo 
 
 
@@ -774,10 +777,163 @@ bool init_gl() {
 #include <queue>
 
 
+Eigen::MatrixXf load_matrix(char *file) {
+	FILE *f = fopen(file, "rb");
+	int cols, rows;
+
+	fread(&cols, sizeof(int), 1, f);
+	fread(&rows, sizeof(int), 1, f);
+
+	float *data = (float *)malloc(cols*rows * sizeof(float));
+	fread(data, sizeof(float), cols*rows, f);
+	fclose(f);
+
+	return Eigen::Map<Eigen::MatrixXf>(data, rows, cols);
+}
 
 
-#pragma optmize("", off)
-int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Receiver> recs) {
+MatrixXi16 load_imatrix(char *file) {
+	FILE *f = fopen(file, "rb");
+	int cols, rows;
+
+	fread(&cols, sizeof(int), 1, f);
+	fread(&rows, sizeof(int), 1, f);
+
+	int16_t *data = (int16_t *)malloc(cols*rows * sizeof(int));
+	fread(data, sizeof(int16_t), cols*rows, f);
+	fclose(f);
+
+	return Eigen::Map<MatrixXi16>(data, rows, cols);
+}
+#pragma optimize ("", on)
+void recompute_matrix_factorization(std::vector<Receiver> *recs) {
+	auto full_mat_nz = load_matrix(PRECOMP_ASSET_FOLDER "full_nz.matrix");
+	auto probe_indices = load_imatrix(PRECOMP_ASSET_FOLDER "probe_indices.imatrix");
+
+	int num_probes = probe_indices.maxCoeff() + 1;
+	int num_receivers = probe_indices.cols();
+	int col_length = probe_indices.rows();
+	Eigen::MatrixXf full(num_probes * 16, num_receivers);
+	full.setZero();
+
+	int new_num_receivers = 0;
+	for (int i = 0; i < num_receivers; i++) {
+		bool non_zero = false;
+		for (int c = 0; c < col_length; c++) {
+			int16_t probe = probe_indices(c, i);
+			if (probe == -1)continue;
+
+			auto src = &full_mat_nz(c * 16, i);
+			for (int i = 0; i < 16; i++) {
+				if (src[i] != 0) {
+					non_zero = true;
+					break;
+				}
+			}
+			auto dst = &full(probe * 16, new_num_receivers);
+			memmove(dst, src, sizeof(float) * 16);
+		}
+		if (non_zero)++new_num_receivers;
+		(*recs)[new_num_receivers] = (*recs)[i]; // removes all nonzero receivers.
+	}
+
+	recs->resize(new_num_receivers);
+	full.conservativeResize(Eigen::NoChange_t(), new_num_receivers);
+	Eigen::SparseMatrix<float> f = full.sparseView();
+	f.makeCompressed();
+	auto sd = smooth_dictionary_learning(&f, recs, 0.01f, 2048);
+
+#if 1
+	{
+		// add padding
+		static int px_map[1024][1024];
+		memset(px_map, 0xff, sizeof(px_map));
+		// set all neighbours
+		for (int i = 0; i < new_num_receivers; i++) {
+			Receiver rec = (*recs)[i];
+			px_map[rec.px.x()][rec.px.y()] = i;
+			for (int dx = -1; dx <= 1; dx++) {
+				for (int dy = -1; dy <= 1; dy++) {
+					px_map[rec.px.x() + dx][rec.px.y() + dy] = i;
+				}
+			}
+		}
+		// clear those already in recs
+		for (int i = 0; i < new_num_receivers; i++) {
+			Receiver rec = (*recs)[i];
+			px_map[rec.px.x()][rec.px.y()] = -1;
+		}
+
+		struct PaddingInfo {
+			int receiver_index;
+			ivec2 px;
+		};
+
+		std::vector<PaddingInfo> padding;
+		// add the padding receivers
+		for (int x = 0; x < 1024; x++) {
+			for (int y = 0; y < 1024; y++) {
+				if (px_map[x][y] != -1) {
+					PaddingInfo pad = {};
+					pad.px = ivec2(x, y);
+					pad.receiver_index = px_map[x][y];
+					padding.push_back(pad);
+				}
+			}
+		}
+		sd.code.conservativeResize(sd.code.rows(), sd.code.cols() + padding.size());
+		for (int q = 0; q < padding.size(); q++) {
+			PaddingInfo pd = padding[q];
+			SparseVector<float> x = sd.code.col(new_num_receivers + q);
+			SparseVector<float> y = sd.code.col(new_num_receivers);
+
+			sd.code.col(new_num_receivers+q) = y;
+			Receiver rec;
+			rec.px.x() = pd.px.x();
+			rec.px.y() = pd.px.y();
+			recs->push_back(rec);
+		}
+		new_num_receivers += padding.size();
+	}
+#endif
+
+	{ // output new matrices
+		store_matrix(sd.dictionary, PRECOMP_ASSET_FOLDER "dictionary.matrix");
+		FILE *coeffs = fopen(PRECOMP_ASSET_FOLDER "coeffs.matrix", "wb");
+		FILE *coeff_indices = fopen(PRECOMP_ASSET_FOLDER "coeff_idx.imatrix", "wb");
+		fwrite(&new_num_receivers, sizeof(int), 1, coeffs);
+		fwrite(&new_num_receivers, sizeof(int), 1, coeff_indices);
+		int num_nz_atoms = 8;
+		fwrite(&num_nz_atoms, sizeof(int), 1, coeffs);
+		fwrite(&num_nz_atoms, sizeof(int), 1, coeff_indices);
+
+
+		for (int i = 0; i < sd.code.cols(); i++) {
+			SparseVector<float> col = sd.code.col(i);
+			int num_nz = col.nonZeros();
+			int16_t nz_indices[8];
+			for (int i = 0; i < num_nz; i++) nz_indices[i] = col.innerIndexPtr()[i];
+
+			float *nz_coeffs = col.valuePtr();
+
+			fwrite(nz_indices, sizeof(int16_t), num_nz, coeff_indices);
+			fwrite(nz_coeffs, sizeof(float), num_nz, coeffs);
+
+			//always write coeffs even if they're not used
+			static int16_t invalid_index[8] = { -1,-1,-1,-1,-1,-1,-1,-1 };
+			static float invalid_data[8] = { 0,0,0,0,0,0,0,0 };
+			fwrite(invalid_index, sizeof(int16_t), 8 - num_nz, coeff_indices);
+			fwrite(invalid_data, sizeof(float), 8 - num_nz, coeffs);
+		}
+		fclose(coeffs);
+		fclose(coeff_indices);
+	}
+}
+
+
+#pragma optmize("", on)
+#define RECOMP_FACTORIZATION
+int visibility(std::vector<vec3> probe_locations, Mesh *mesh) {
 
 
 	if (!init_gl()) {
@@ -787,10 +943,18 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 
 	load_mesh(mesh);
 	GLuint positions, normals;
-	recs = compute_receivers_gpu(mesh->num_indices, &normals, &positions);
-	
+	std::vector<Receiver> recs = compute_receivers_gpu(mesh->num_indices, &normals, &positions);
+
+#ifdef RECOMP_FACTORIZATION
+	// recomputes the matrix factorization based on the previous computation of the matrices
+	recompute_matrix_factorization(&recs);
+	char *px_map_path = PRECOMP_ASSET_FOLDER "receiver_px_map_comp.imatrix";
+#else
+	char *px_map_path = PRECOMP_ASSET_FOLDER "receiver_px_map.imatrix";
+#endif
+
 	{
-		FILE *f = fopen(PRECOMP_ASSET_FOLDER "receiver_px_map.imatrix", "wb");
+		FILE *f = fopen(px_map_path, "wb");
 		int num_recs = recs.size();
 		int num_comps = 2;
 
@@ -802,7 +966,12 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 		fclose(f);
 	}
 
-	
+#ifdef RECOMP_FACTORIZATION
+	// removes the receivers that was zero in the previous iteration. 
+	// so let's not continue past here!
+	return 0;
+#endif
+
 #if 0 // to visualize shadow map at probe_loc
 	vec3 probe_loc = vec3(0, 0.5, 0);
 	probe_locations.clear();
@@ -853,7 +1022,7 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 
 
 		float dist = (probe_locations[closest_probes.top()] - rec_data.position).norm();
-		
+
 		//@fix when num probes is less than num_probes_per_rec
 		closest_probes.pop();
 #ifdef REC_RADIUS
@@ -861,7 +1030,7 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 #else 
 		radius = min(radius, dist);
 #endif
-		int i = closest_probes.size()-1;
+		int i = closest_probes.size() - 1;
 		while (!closest_probes.empty()) {
 			int probe_index = closest_probes.top();
 			vec3 probe = probe_locations[probe_index];
@@ -892,20 +1061,20 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 #endif
 			if (receiver.visible_probes[i].weight > 0.0) ++receiver.num_visible_probes;
 			//receiver->num_visible_probes = 8;
-		}
+	}
 		avg_num_visble_probes += receiver.num_visible_probes / (float)receivers.size();
 		max_num_visible_probes = max(max_num_visible_probes, receiver.num_visible_probes);
 		min_num_visible_probes = min(min_num_visible_probes, receiver.num_visible_probes);
 
 		if (receiver.num_visible_probes == 0)++num_with_zero_visible;
-	}
+}
 	printf("avg_num_visble probes: %f\n", avg_num_visble_probes);
 	printf("min_num_visble probes: %d\n", min_num_visible_probes);
 	printf("max_num_visble probes: %d\n", max_num_visible_probes);
 	printf("perc none visible : %f\n", num_with_zero_visible / (float)receivers.size());
 #endif
 
-	
+
 
 
 
@@ -914,7 +1083,7 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 
 	printf("calculating spherical harmonics etc...");
 
-#if 0
+#if 1
 	render_receivers(mesh->num_indices, receivers, depth_maps, probe_locations.size());
 #else
 	// to visualize shadow map at probe_loc
@@ -926,10 +1095,10 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glDisable(GL_BLEND);
 	glEnable(GL_DEPTH_TEST);
-	
+
 	vec3 camera_pos = vec3(0, 6.0, 0.01);
 	glViewport(0, 0, 1024, 768);
-	static int active_probe=0;
+	static int active_probe = 0;
 	do {
 		float camera_speed = 0.05;
 		// trying to break tree.js's record in worst camera 
@@ -949,13 +1118,13 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 
 		static bool down_r = false;
 		if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-			if(!down_r) ++active_probe;
+			if (!down_r) ++active_probe;
 			if (active_probe == probe_locations.size()) active_probe = 0;
 			down_r = true;
 		} else {
 			down_r = false;
 		}
-		
+
 		static bool down_f = false;
 		if (glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS) {
 			if (!down_f) --active_probe;
@@ -992,10 +1161,10 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 
 		mat4 proj = projection(0.1, 100.0, 768 / 1024.0);
 		mat4 mat = proj * view;
-		#if 0
-		mat4 mat = proj * look_at(probe_locations[active_probe], 
+#if 0
+		mat4 mat = proj * look_at(probe_locations[active_probe],
 			probe_locations[active_probe] + cube_map_dir[active_view], cube_map_up[active_view]);
-		#endif
+#endif
 
 
 		static GLuint matrix_location = glGetUniformLocation(program, "matrix");
@@ -1011,8 +1180,8 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 		glActiveTexture(GL_TEXTURE2);
 		glBindTexture(GL_TEXTURE_2D, normals);
 
-		
-		
+
+
 		check_gl_error();
 
 		glUniform3fv(light_location, 1, probe_locations[active_probe].data());
@@ -1025,15 +1194,15 @@ int visibility( std::vector<vec3> probe_locations, Mesh *mesh, std::vector<Recei
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 
-} // Check if the ESC key was pressed or the window was closed
+	} // Check if the ESC key was pressed or the window was closed
 	while (glfwGetKey(window, GLFW_KEY_ESCAPE) != GLFW_PRESS &&
 		glfwWindowShouldClose(window) == 0);
 #endif
 
-// Close OpenGL window and terminate GLFW
-glfwTerminate();
+	// Close OpenGL window and terminate GLFW
+	glfwTerminate();
 
-return 0;
+	return 0;
 }
 
 // NOTES: Shadowmapping
