@@ -15,4 +15,5 @@ Compared to the paper we've changed how the receivers are interpolated. Instead 
 
 A link to the Bachelor Thesis will be provided when published.
 
+Here's a screenshot from the application where a scene is illuminated by a small patch of direct light.
 ![Results](Images/image.png?raw=true "Screenshot from the application")
