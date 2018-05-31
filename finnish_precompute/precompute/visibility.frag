@@ -30,7 +30,7 @@ void main()
 		float sampled_light_dist = texture(probe_depth[i], probe_dir).r; 
 		float real_distance = length(probe_dir);
 
-		if(real_distance < sampled_light_dist + 0.01 && dot(probe_dir,normal) < 0){
+		if(real_distance < sampled_light_dist + 0.04 && dot(probe_dir,normal) < 0){
 			out_value[i] = vec4(probe_dir,probe_weight[i]);
 			ack_probe_weight += probe_weight[i];
 		}

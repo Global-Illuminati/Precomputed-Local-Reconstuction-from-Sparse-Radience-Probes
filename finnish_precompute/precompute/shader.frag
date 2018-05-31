@@ -20,7 +20,7 @@ void main()
 	float sampled_light_dist = texture(shadow_map, light_dir).r; 
 	float real_distance = length(light_dir);
 	float vis = 0;
-   if (real_distance < sampled_light_dist + 0.01)
+   if (real_distance < sampled_light_dist + 0.04)
         vis= 1.0; 
     else
         vis= 0.0; 

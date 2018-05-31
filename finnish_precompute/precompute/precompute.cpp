@@ -7,7 +7,7 @@
 #define RHO_PROBES 7.0f //15.0f //7.0f//15.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/t_scene/precompute/"
 #define OBJ_FILE_PATH "../../assets/t_scene/t_scene.obj"
-const float lightmap_texel_area = 4;
+const float lightmap_texel_area = 2;
 #elif defined LIVING_ROOM
 #define RHO_PROBES 12.0f
 #define PRECOMP_ASSET_FOLDER "../../assets/living_room/precompute/"
@@ -79,7 +79,7 @@ float min(float a, float b) {
 float max(float a, float b) {
 	return a > b ? a : b;
 }
-
+#include "SphericalHarmonics.cc"
 #include "voxelizer.hpp"
 #include "probe_reducer.hpp"
 #include "ray_tracer.hpp"
@@ -124,10 +124,10 @@ void write_obj(tinyobj_shape_t *shapes, size_t num_shapes, Mesh *mesh, const cha
 	//		  this is not neccessairly true yet.
 	int written_shapes = 0;
 	for (int face_idx = 0; face_idx < mesh->num_indices / 3; face_idx++) {
-		
-		int ia = mesh->indices[face_idx*3 + 0];
-		int ib = mesh->indices[face_idx*3 + 1];
-		int ic = mesh->indices[face_idx*3 + 2];
+
+		int ia = mesh->indices[face_idx * 3 + 0];
+		int ib = mesh->indices[face_idx * 3 + 1];
+		int ic = mesh->indices[face_idx * 3 + 2];
 
 		if (mesh->shape_idx[ia] != shape_idx) { // new shape need to output the name and material
 			shape_idx = mesh->shape_idx[ia];
@@ -200,8 +200,7 @@ vec3 project_onto_triangle(vec3 bc, Triangle &tri) {
 		//point tri[non_zeros[0]] is closest
 		ret(indices_of_positives[0]) = 1.0;
 		return ret;
-	}
-	else if (num_positives == 2) {
+	} else if (num_positives == 2) {
 		// edge between tri[ia] tri[ib] is closest  
 		int ia = indices_of_positives[0];
 		int ib = indices_of_positives[1];
@@ -376,44 +375,37 @@ void compute_receiver_locations(Atlas_Output_Mesh *light_map_mesh, Mesh mesh, st
 					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
 					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
 					padding_duplicates++;
-				}
-				else if (y > 0 && pixel_is_processed[x][y - 1]) {
+				} else if (y > 0 && pixel_is_processed[x][y - 1]) {
 					ivec2 neighbor_px = ivec2(x, y - 1);
 					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
 					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
 					padding_duplicates++;
-				}
-				else if (x <= 1024 && pixel_is_processed[x + 1][y]) {
+				} else if (x <= 1024 && pixel_is_processed[x + 1][y]) {
 					ivec2 neighbor_px = ivec2(x + 1, y);
 					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
 					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
 					padding_duplicates++;
-				}
-				else if (y <= 1024 && pixel_is_processed[x][y + 1]) {
+				} else if (y <= 1024 && pixel_is_processed[x][y + 1]) {
 					ivec2 neighbor_px = ivec2(x, y + 1);
 					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
 					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
 					padding_duplicates++;
-				}
-				else if (x > 0 && y > 0 && pixel_is_processed[x - 1][y - 1]) { // diagonal neighbors
+				} else if (x > 0 && y > 0 && pixel_is_processed[x - 1][y - 1]) { // diagonal neighbors
 					ivec2 neighbor_px = ivec2(x - 1, y - 1);
 					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
 					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
 					padding_duplicates++;
-				}
-				else if (x <= 1024 && y > 0 && pixel_is_processed[x + 1][y - 1]) {
+				} else if (x <= 1024 && y > 0 && pixel_is_processed[x + 1][y - 1]) {
 					ivec2 neighbor_px = ivec2(x + 1, y - 1);
 					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
 					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
 					padding_duplicates++;
-				}
-				else if (x <= 1024 && y <= 1024 && pixel_is_processed[x + 1][y + 1]) {
+				} else if (x <= 1024 && y <= 1024 && pixel_is_processed[x + 1][y + 1]) {
 					ivec2 neighbor_px = ivec2(x + 1, y + 1);
 					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
 					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
 					padding_duplicates++;
-				}
-				else if (x > 0 && y <= 1024 && pixel_is_processed[x - 1][y + 1]) {
+				} else if (x > 0 && y <= 1024 && pixel_is_processed[x - 1][y + 1]) {
 					ivec2 neighbor_px = ivec2(x - 1, y + 1);
 					Receiver neighbor = *(receiver_set.find({ vec3(0,0,0), vec3(0,0,0), neighbor_px }));
 					receiver_set.insert({ neighbor.pos, neighbor.norm, pixel });
@@ -556,9 +548,168 @@ namespace std {
 }
 
 
+#if 0
+void gen_shs_better() {
+	int num_bands = 8;
+	float P[num_bands][2 * num_bands];
+	float S[num_bands];
+	float C[num_bands];
+	float Y[num_bands][2 * num_bands];
+	float x, y, z;
+	S[0] = C[0] = 0;
+	for (int i = 0; i < num_bands - 1; i++) {
+		S[i + 1] = x * S[i] - y * C[i];
+		C[i + 1] = x * C[i] - y * S[i];
+	}
+
+	P[0][0] = 0;
+	for (int m = 0; m < num_bands; m++) {
+		for (int l = 1 - m; l <= m - 1; l++) {
+			P[m][m] = (1 - 2 * m)*P[m - 1][m - 1];
+			P[m][m + 1] = (2 * m + 1)*z*P[m][m];
+			P[m][l] = ((2 * l - 1)*z*P[m][l - 1] - (l + m - 1)*P[m][l - 2]) / (l - m);
+		}
+	}
+
+	Fact[2 * num_bands];
+	Fact[0] = 1;
+
+	for (int i = 0; i < 2 * num_bands - 1; i++) {
+		Fact[i + 1] = Fact[i] * (i + 1);
+	}
+
+	for (int l = 0; l < num_bands; l++) {
+		Y[l][0] = sqrt(2) * C[m] * P[m][l];
+		for (int m = 0; m < l; m++) {
+			float K = sqrt(2 * (2 * l + 1)*Fact[l - m] / 4 * 3.14*Fact[l + m]);
+			Y[l][+m] = K * C[m] * P[l][m];
+			Y[l][-m] = K * S[m] * P[l][m];
+		}
+	}
+}
+#endif
+#if 0
+#pragma optimize("", on)
+void gen_shs2() {
+	// using recurence relations the compute the shs 
+#define PVT(l,m) ((m)+((l)*((l)+1))/2)
+#define YVR(l,m) ((m)+(l)+((l)*(l)))
+
+	auto v = vec3(1, 2, 3).normalized();
+
+	float z = v.z();
+	float x = v.x();
+	float y = v.y();
+
+	const int LL = 3;
+	float A[(LL+1)*(LL+1)];
+	float B[(LL+1)*(LL+1)];
+	float P[(LL+1)*(LL+1)];
+	float Y[(LL+1)*(LL+1)];
+
+	memset(A, 0, sizeof(A));
+	memset(B, 0, sizeof(B));
+	memset(P, 0, sizeof(P));
+	memset(Y, 0, sizeof(Y));
+
+	for (int l = 2; l <= LL; l++) {
+		float ls = l * l;
+		float lm1s = (l - 1) * (l - 1);
+		for (int m = 0; m < l - 1; m++) {
+			float ms = m * m;
+			A[PVT(l, m)] = sqrt((4 * ls - 1.) / (ls - ms));
+			B[PVT(l, m)] = -sqrt((lm1s - ms) / (4 * lm1s - 1.));
+		}
+	}
+	float sintheta = sqrt(1. - z * z);
+	float temp = 0.39894228040143267794;  // = sqrt(0.5/pi)
+	P[PVT(0, 0)] = temp;
+	const float SQRT3 = sqrt(3);
+	P[PVT(1, 0)] = z * SQRT3 * temp;
+	const float SQRT3DIV2 = -1.2247448713915890491;
+	temp = SQRT3DIV2 * sintheta * temp;
+	P[PVT(1, 1)] = temp;
+
+	for (int l = 2; l <= LL; l++) {
+		for (int m = 0; m < l - 1; m++) {
+			P[PVT(l, m)] = A[PVT(l, m)]
+				* (z * P[PVT(l - 1, m)]
+					+ B[PVT(l, m)] * P[PVT(l - 2, m)]);
+		}
+		P[PVT(l, l - 1)] = z * sqrt(2 * (l - 1) + 3) * temp;
+		temp = -sqrt(1.0 + 0.5 / l) * sintheta * temp;
+		P[PVT(l, l)] = temp;
+	}
+
+	for (int l = 0; l <= LL; l++)
+		Y[YVR(l, 0)] = P[PVT(l, 0)] * 0.5 * sqrt(2);
+	
+	vec2 v_ = vec2(x, y).normalized();
+#if 0
+	float c1 = 1.0, c2 = cos(phi);
+	float s1 = 0.0, s2 = -sin(phi);
+#else
+	float c1 = 1.0, c2 = v_.x();
+	float s1 = 0.0, s2 = -v_.y();
+#endif
+	float tc = 2.0 * c2;
+	for (int m = 1; m <= LL; m++) {
+		float s = tc * s1 - s2;
+		float c = tc * c1 - c2;
+		float s_ = x * s1 + y * c1;
+		float c_ = x * c1 - y * s1;
+
+		s2 = s1;
+		s1 = s;
+		c2 = c1;
+		c1 = c;
+
+
+		for (int l = m; l <= LL; l++) {
+			Y[YVR(l, -m)] = sqrt(2)*P[PVT(l, m)] * s;
+			Y[YVR(l, m)] =  sqrt(2)*P[PVT(l, m)] * c;
+		}
+	}
+	int q = 0;
+
+
+
+	{
+		float Y2[] = {
+		0.282098949,
+			-0.488609731* y,
+			0.488609731 * z,
+			-0.488609731* x,
+
+			1.09256458	 * y*x,
+			-1.09256458 * y*z,
+			0.315396219 * (3 * z*z - 1),
+			-1.09256458	 * x*z,
+
+			0.546282291	*(x*x - y * y),
+			-0.590052307 *y*(3 * x*x - y * y),
+			2.89065409 * x*y*z,
+			-0.457052559 * y*(-1 + 5 * z*z),
+
+			0.373181850	*z*(5 * z*z - 3),
+			-0.457052559*x*(-1 + 5 * z*z),
+			1.44532704	*(x*x - y * y)*z,
+			-0.590052307*x*(x*x - 3 * y*y) };
+
+
+		vec2 v = vec2(x, y).normalized();
+
+		float Y3[16];
+		computeY(3, z, x,y, Y3);
+		double yy = sin(acos(v.x()));
+		int q = 0;
+		for (int i = 0; i < 16; i++) Y3[i] -= Y2[i];
+		for (int i = 0; i < 16; i++) Y[i]  -= Y2[i];
+	}
+}
+#endif
 
 int main(int argc, char * argv[]) {
-
 	tinyobj_attrib_t attr;
 	tinyobj_shape_t* shapes = NULL;
 	size_t num_shapes;
@@ -597,15 +748,15 @@ int main(int argc, char * argv[]) {
 			indices[i] = attr.faces[i].v_idx;
 		}
 		m.indices = indices;
-		if(attr.num_normals == 0) generate_normals(&m);
-		
+		if (attr.num_normals == 0) generate_normals(&m);
+
 		free(m.indices);
 
 
 		// lazy code
 		// rebuild the mesh form scratch.
 		{
-			
+
 			std::vector<int> indices;
 
 			std::unordered_map<Vert, int> vertex_map;
@@ -645,9 +796,9 @@ int main(int argc, char * argv[]) {
 			m.uv = (vec2 *)malloc(vertices.size() * sizeof(vec2));
 			m.shape_idx = (int *)malloc(vertices.size() * sizeof(int));
 			m.num_verts = vertices.size();
-			
+
 			m.indices = (int *)malloc(indices.size() * sizeof(int));
-			m.num_indices = indices.size(); 
+			m.num_indices = indices.size();
 			// why the fuck is this needed. surely we shouldnt change the number of triangles
 			// but appearently shapes doesn't reference all of the triangles... wut?
 			// are we missing something here?
@@ -667,24 +818,24 @@ int main(int argc, char * argv[]) {
 
 
 
-	
+
 	Mesh m2;
-	
+
 
 	Atlas_Output_Mesh *output_mesh = NULL;
 #if 1
 	{
-		
+
 		// convert to theklas input format
-		
+
 
 		Atlas_Input_Mesh input_mesh;
 		input_mesh.vertex_count = m.num_verts;
 		input_mesh.vertex_array = (Atlas_Input_Vertex*)malloc(sizeof(Atlas_Input_Vertex)*m.num_verts);
 
 		input_mesh.face_count = m.num_indices / 3;
-		input_mesh.face_array = (Atlas_Input_Face  *)malloc(sizeof(Atlas_Input_Face)*m.num_indices/3);
-		
+		input_mesh.face_array = (Atlas_Input_Face  *)malloc(sizeof(Atlas_Input_Face)*m.num_indices / 3);
+
 		for (int i = 0; i < input_mesh.face_count; i++) {
 			input_mesh.face_array[i].vertex_index[0] = m.indices[i * 3 + 0];
 			input_mesh.face_array[i].vertex_index[1] = m.indices[i * 3 + 1];
@@ -701,13 +852,13 @@ int main(int argc, char * argv[]) {
 			input_mesh.vertex_array[i].normal[0] = m.normals[i].x();
 			input_mesh.vertex_array[i].normal[1] = m.normals[i].y();
 			input_mesh.vertex_array[i].normal[2] = m.normals[i].z();
-			
+
 			input_mesh.vertex_array[i].uv[0] = m.uv[i].x();
 			input_mesh.vertex_array[i].uv[1] = m.uv[i].y();
 #endif		
 			input_mesh.vertex_array[i].first_colocal = i;
 		}
-		
+
 
 		// Generate Atlas_Output_Mesh.
 		Atlas_Options atlas_options;
@@ -737,7 +888,7 @@ int main(int argc, char * argv[]) {
 		//printf("Rescale factor: %f\n", rescaleFactor);
 		//resize_thekla_atlas(output_mesh, rescaleFactor);
 
-		
+
 		{
 
 			m2.num_indices = output_mesh->index_count;
@@ -746,7 +897,7 @@ int main(int argc, char * argv[]) {
 			m2.verts = (vec3 *)malloc(m2.num_verts * sizeof(vec3));
 			m2.normals = (vec3 *)malloc(m2.num_verts * sizeof(vec3));
 			m2.lightmap_uv = (vec2 *)malloc(m2.num_verts * sizeof(vec2));
-			m2.uv= (vec2 *)malloc(m2.num_verts * sizeof(vec2));
+			m2.uv = (vec2 *)malloc(m2.num_verts * sizeof(vec2));
 			m2.shape_idx = (int *)malloc(m2.num_verts * sizeof(int));
 
 			for (int i = 0; i < m2.num_verts; i++) {
@@ -785,7 +936,7 @@ int main(int argc, char * argv[]) {
 		reduce_probes(probes, &data, RHO_PROBES);
 
 #elif defined(LIVING_ROOM)
-		AABB center_box = {vec3(0.265, 0.2, 0.2), vec3(0.735, 0.82, 0.75) };
+		AABB center_box = { vec3(0.265, 0.2, 0.2), vec3(0.735, 0.82, 0.75) };
 		remove_noncentral_probes(probes, &data, center_box);
 		reduce_probes(probes, &data, 2.0, 15);
 #else
@@ -823,10 +974,11 @@ int main(int argc, char * argv[]) {
 		write_relight_uvs(probe_data, PRECOMP_ASSET_FOLDER "relight_uvs.dat");
 		write_relight_shs(relight_ray_directions, PRECOMP_ASSET_FOLDER "relight_shs.dat");
 	}
+	return 0;
 #endif
 
 
-#if 0
+#if 1
 	std::vector<Receiver>receivers;
 	{ // generate receivers
 		compute_receiver_locations(output_mesh, m, receivers, &data);
@@ -840,7 +992,7 @@ int main(int argc, char * argv[]) {
 			fwrite(rec.px.data(), sizeof(int), 2, f);
 		}
 		fclose(f);
-	}
+}
 #endif
 
 	if (true) { // compute local transport

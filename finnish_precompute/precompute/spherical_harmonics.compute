@@ -1,0 +1,160 @@
+#version 430
+layout(rgba32f, binding = 0) uniform image2D dstTex;
+layout(rgba32f, binding = 1) readonly uniform image2D srcTex;
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void write(int i, vec4 v) {
+	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+	int txs = imageSize(srcTex).x;
+	ivec2 loc = ivec2(px.x + i * txs, px.y);
+
+	imageStore(dstTex, loc, imageLoad(dstTex, loc) + v);
+}
+
+
+void main() {
+
+	ivec2 px = ivec2(gl_GlobalInvocationID.xy);
+	vec4 in_value = imageLoad(srcTex, px);
+	float weight = in_value.a;
+	vec3 probe_dir = in_value.xyz;
+
+	// this is the same as imageSize(dstTex).x/4, ie sh_samples in the c++ code
+		// to make sure we get as low perf as possible 
+		// we absolutely shit on locality
+		// we might convert this to a 3d image later. But we can only access 32 images on my cpu
+		// so if we need to bind it layered it might be a problem.
+		// idk if we do tho. but that's for later. for now, TRASH THE CACHE!
+
+	if (probe_dir == vec3(0, 0, 0) || weight == 0) {
+		return;
+	}
+
+	vec3 v = normalize(probe_dir);
+	float x = v.x;
+	float y = v.y;
+	float z = v.z;
+
+	// using hardcoded functions
+#if 0
+	write(0, vec4(
+		0.282098949,
+		-0.488609731* y,
+		0.488609731 * z,
+		-0.488609731* x
+	)*weight);
+
+	write(1, vec4(
+		1.09256458 * y*x,
+		-1.09256458 * y*z,
+		0.315396219 * (3 * z*z - 1),
+		-1.09256458	* x*z
+	)*weight);
+
+	write(2, vec4(
+		0.546282291 * (x*x - y * y),
+		-0.590052307 * y*(3 * x*x - y * y),
+		2.89065409 * x*y*z,
+		-0.457052559 * y*(-1 + 5 * z*z)
+	)*weight);
+
+	write(3, vec4(
+		0.373181850 * z*(5 * z*z - 3),
+		-0.457052559 * x*(-1 + 5 * z*z),
+		1.44532704 * (x*x - y * y)*z,
+		-0.590052307 * x*(x*x - 3 * y*y)
+	)*weight);
+#else
+	// using recurence relations the compute the shs 
+	// this part is of the file is lisenced under Eclipse Public License 
+	// since it's an adaptation of the code from
+	// https://github.com/milthorpe/spherical-harmonics/blob/master/SphericalHarmonics.h
+	// here's the original license notice:
+	/*
+	* This file is part of ANUChem.
+	*
+	*  This file is licensed to You under the Eclipse Public License (EPL);
+	*  You may not use this file except in compliance with the License.
+	*  You may obtain a copy of the License 
+	*      http://www.opensource.org/licenses/eclipse-1.0.php
+	*
+	* (C) Copyright IBM Corporation 2014.
+	* (C) Copyright Mahidol University International College 2014.
+	*/
+
+#define PVT(l,m) ((m)+((l)*((l)+1))/2)
+#define YVR(l,m) ((m)+(l)+((l)*(l)))
+
+	//const int L = 3;
+	const int L = 7;
+
+
+	const int sizeP = (L + 1) * (L + 2) / 2;
+	float P[sizeP];
+	float A[sizeP];
+	float B[sizeP];
+	float Y[(L + 1)*(L + 1)];
+
+	for (int l = 2; l <= L; l++) {
+		float ls = l * l;
+		float lm1s = (l - 1) * (l - 1);
+		for (int m = 0; m < l - 1; m++) {
+			float ms = m * m;
+			A[PVT(l, m)] = sqrt((4 * ls - 1.) / (ls - ms));
+			B[PVT(l, m)] = -sqrt((lm1s - ms) / (4 * lm1s - 1.));
+		}
+	}
+
+	float sintheta = sqrt(1. - z * z);
+	if (z == 1) sintheta = 0.0;
+	float temp = 0.39894228040143267794;  // = sqrt(0.5/M_PI)
+	P[PVT(0, 0)] = temp;
+
+	const float SQRT3 = 1.7320508075688772935;
+	P[PVT(1, 0)] = z * SQRT3 * temp;
+	const float SQRT3DIV2 = -1.2247448713915890491;
+	temp = SQRT3DIV2 * sintheta * temp;
+	P[PVT(1, 1)] = temp;
+
+	for (int l = 2; l <= L; l++) {
+		for (int m = 0; m < l - 1; m++) {
+			P[PVT(l, m)] = A[PVT(l, m)]
+				* (z * P[PVT(l - 1, m)]
+					+ B[PVT(l, m)] * P[PVT(l - 2, m)]);
+		}
+		P[PVT(l, l - 1)] = z * sqrt(2 * (l - 1) + 3) * temp;
+		temp = -sqrt(1.0 + 0.5 / l) * sintheta * temp;
+		P[PVT(l, l)] = temp;
+	}
+
+	for (int l = 0; l <= L; l++)
+		Y[YVR(l, 0)] = P[PVT(l, 0)] * 0.5 * sqrt(2);
+	if (sintheta == 0) {
+		for (int m = 1; m <= L; m++) {
+			for (int l = m; l <= L; l++) {
+				Y[YVR(l, -m)] = 0;
+				Y[YVR(l, m)] = 0;
+			}
+		}
+	} else {
+		float c1 = 1.0, c2 = x / sintheta;
+		float s1 = 0.0, s2 = -y / sintheta;
+		float tc = 2.0 * c2;
+		for (int m = 1; m <= L; m++) {
+			float s = tc * s1 - s2;
+			float c = tc * c1 - c2;
+			s2 = s1;
+			s1 = s;
+			c2 = c1;
+			c1 = c;
+			for (int l = m; l <= L; l++) {
+				Y[YVR(l, -m)] = P[PVT(l, m)] * s;
+				Y[YVR(l, m)] = P[PVT(l, m)] * c;
+			}
+		}
+	}
+	for (int i = 0; i < (L + 1)*(L + 1) / 4; i++) {
+		write(i, vec4(Y[i * 4 + 0], Y[i * 4 + 1], Y[i * 4 + 2], Y[i * 4 + 3])*weight);
+	}
+#endif
+}

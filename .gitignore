@@ -12,3 +12,6 @@
 
 # Webstorm
 .idea/
+*.matrix
+*.dat
+*.imatrix

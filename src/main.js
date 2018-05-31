@@ -30,17 +30,13 @@ sponza_tp = {
 living_room = {
 	name: "living_room",
 	support_radius: 10.0,
-	cameraPos: vec3.fromValues(0, 2, 5),
-	cameraRot: quat.fromEuler(quat.create(), -15, 0, 0),
+	cameraPos: vec3.fromValues(2.62158, 1.68613, 3.62357),
+	cameraRot: quat.fromEuler(quat.create(), 90-101, 180-70.2, 180+180),
 }
 
 scene = living_room;
 use_baked_light = false;
-
-
-
-
-
+var srgb = false;
 
 
 var stats;	
@@ -48,7 +44,7 @@ var gui;
 
 var settings = {
 	target_fps: 60,
-	environment_brightness: 1.5,
+	environment_brightness: 0.0,
     num_sh_coeffs_to_render: 16,
 	rotate_light: false,
 	view_gi_lightmap:false,
@@ -57,6 +53,7 @@ var settings = {
 	lightmap_only: false,
 	view_padded: false,
 	view_trans_pc: false,
+	view_shadow_map: false,
 };
 
 var sceneSettings = {
@@ -85,7 +82,7 @@ var sceneUniforms;
 var shadowMapSize = 4096;
 var shadowMapFramebuffer;
 
-var lightMapSize = 1024;
+var lightMapSize = 4096;
 var lightMapFramebuffer;
 
 var giLightMapSize = 1024;
@@ -163,6 +160,11 @@ function checkWebGL2Compability() {
 	return true;
 
 }
+function isDataTexture(imageName) {
+	return imageName.indexOf('_ddn') != -1
+		  || imageName.indexOf('_spec') != -1
+		  || imageName.indexOf('_normal') != -1;
+}
 
 function loadTexture(imageName, options) {
 
@@ -172,7 +174,16 @@ function loadTexture(imageName, options) {
 		options['minFilter'] = PicoGL.LINEAR_MIPMAP_NEAREST;
 		options['magFilter'] = PicoGL.LINEAR;
 		options['mipmaps'] = true;
-
+		if(srgb)
+		{
+			if (isDataTexture(imageName)) {
+				options['internalFormat'] = PicoGL.RGB8;
+				options['format'] = PicoGL.RGB;
+			} else {
+				options['internalFormat'] = PicoGL.SRGB8_ALPHA8;
+				options['format'] = PicoGL.RGBA;
+			}
+		}
 	}
 
 	var texture = app.createTexture2D(1, 1, options);
@@ -184,6 +195,11 @@ function loadTexture(imageName, options) {
 		texture.resize(image.width, image.height);
 		texture.data(image);
 
+			// HACK: set anisotropy
+		var ext = app.gl.getExtension('EXT_texture_filter_anisotropic');
+		app.gl.bindTexture(PicoGL.TEXTURE_2D, texture.texture);
+		var maxAniso = app.gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT);
+		app.gl.texParameterf(PicoGL.TEXTURE_2D, ext.TEXTURE_MAX_ANISOTROPY_EXT, maxAniso);
 	};
 	image.src = 'assets/' + imageName;
 	return texture;
@@ -192,20 +208,41 @@ function loadTexture(imageName, options) {
 
 
 function makeSingleColorTexture(color) {
-    var options = {};
-    options['minFilter'] = PicoGL.NEAREST;
-    options['magFilter'] = PicoGL.NEAREST;
-    options['mipmaps'] = false;
-    options['format'] = PicoGL.RGB;
-    options['internalFormat'] = PicoGL.RGB32F;
-    options['type'] = PicoGL.FLOAT;
-    var side = 32;
-    var arr =  [];
-    for (var i = 0; i < side*side; i++) {
-    	arr = arr.concat(color);
+	if(srgb)
+	{
+		var options = {};
+		options['minFilter'] = PicoGL.NEAREST;
+		options['magFilter'] = PicoGL.NEAREST;
+		options['mipmaps'] = false;
+		options['format'] = PicoGL.RGBA;
+		options['internalFormat'] = PicoGL.SRGB8_ALPHA8;
+		options['type'] = PicoGL.UNSIGNED_BYTE;
+		var side = 32;
+		var arr =  [];
+		for (var i = 0; i < side * side; i++) {
+			var colorByte = [color[0] * 255.99, color[1] * 255.99, color[2] * 255.99, 255];
+			arr = arr.concat(colorByte);
+		}
+		var image_data = new Uint8Array(arr);
+		return app.createTexture2D(image_data, side, side, options);
 	}
-    var image_data = new Float32Array( arr );
-    return app.createTexture2D(image_data, side, side, options);
+	else{
+		var options = {};
+		options['minFilter'] = PicoGL.NEAREST;
+		options['magFilter'] = PicoGL.NEAREST;
+		options['mipmaps'] = false;
+		options['format'] = PicoGL.RGBA;
+		options['internalFormat'] = PicoGL.RGBA8;
+		options['type'] = PicoGL.UNSIGNED_BYTE;
+		var side = 32;
+		var arr =  [];
+		for (var i = 0; i < side * side; i++) {
+			var colorByte = [color[0] * 255.99, color[1] * 255.99, color[2] * 255.99, 255];
+			arr = arr.concat(colorByte);
+		}
+		var image_data = new Uint8Array(arr);
+		return app.createTexture2D(image_data, side, side, options);
+	}
 }
 
 
@@ -288,12 +325,12 @@ function makeTexturefromFloatArr(data) {
 	options['type'] = PicoGL.FLOAT;
 
 	// @ROBUSTNESS, spec requires support of only 1024x1024 but if the exist on my laptop maybe it's fine?
-	
 	var max_size = 1<<14;
 
 	var aligned_length = (data.length/4 + max_size-1) & ~(max_size-1);
 	image_data = new Float32Array(aligned_length*4);
 	image_data.set(data);
+	console.log("sizes:",max_size, aligned_length>>14);
 	return app.createTexture2D(image_data, max_size, aligned_length >> 14,  options);
 }
 
@@ -328,12 +365,9 @@ function loadDynamicObject(directory, objFilename, mtlFilename, modelMatrix) {
 
     objLoader.load(path + objFilename, function(objects) {
         mtlLoader.load(path + mtlFilename, function(materials) {
-        	console.log(objects);
             objects.forEach(function(object) {
 
                 var material = materials[object.material];
-                console.log(object.material);
-                console.log(material);
                 // var diffuseMap  = (material.properties.map_Kd)   ? directory + material.properties.map_Kd   : 'default_diffuse.png';
                 var diffuseTexture;
 				if (material.properties.map_Kd) {
@@ -382,7 +416,6 @@ function loadObjectUV2(directory, objFilename, mtlFilename, modelMatrix) {
 	var path = 'assets/' + directory;
 
 	objLoader.load(path + objFilename, function(objects) {
-		console.log(objects);
 		mtlLoader.load(path + mtlFilename, function(materials) {
 			objects.forEach(function(object) {
 
@@ -479,6 +512,8 @@ function init() {
     gui.add(settings, 'lightmap_only');
     gui.add(settings, 'view_padded');
 	gui.add(settings, 'view_trans_pc');
+	gui.add(settings, 'view_shadow_map');
+	
 	//////////////////////////////////////
 	// Basic GL state
 
@@ -572,7 +607,7 @@ function init() {
 		environmentDrawCall = app.createDrawCall(environmentShader, fullscreenVertexArray)
 		.texture('u_environment_map', loadTexture('environments/ocean.jpg', {}));
 
-		var probeVertexArray = createSphereVertexArray(1.0, 32, 32);
+		var probeVertexArray = createSphereVertexArray(0.05, 32, 32);
         var unlitShader = makeShader('unlit', data);
         var probeVisualizeSHShader = makeShader('probeVisualizeSH', data);
         var probeVisualizeRawShader = makeShader('probeVisualizeRaw', data);
@@ -672,7 +707,7 @@ function init() {
 	function(value) {
 		relight_shs = value;
         num_sh_coefficients = relight_shs[0].length;
-
+		console.log(num_sh_coefficients);
         num_relight_rays = relight_shs.length;
 
         relight_shs_texture = makeTextureFromRelightSHs(relight_shs);
@@ -700,7 +735,6 @@ function init() {
 		matrix_loader.load(precompute_folder + "dictionary.matrix", function(dict_matrix){
 			dict = makeTextureFromMatrix1(dict_matrix);
 			setupApplyDictFramebuffer(dict_matrix.cols,1); 
-			console.log(dict_matrix.cols);
 		}, Float32Array);
 	}
 	var px_map_path = compressed ? "receiver_px_map_comp.imatrix":"receiver_px_map.imatrix" ;
@@ -714,7 +748,6 @@ function init() {
 	{
 		matrix_loader.load(precompute_folder +  "coeff_idx.imatrix", function(probe_indices_mat){
 			probe_indices = probe_indices_mat;
-			console.log("pim:",	probe_indices_mat);
 			create_gi_draw_call();
 		}, Int16Array);
 
@@ -852,12 +885,12 @@ function setupDirectionalLightShadowMapFramebuffer(size) {
 	});
 
 	var depthBuffer = app.createTexture2D(size, size, {
-		format: PicoGL.DEPTH_COMPONENT,
+		internalFormat: PicoGL.DEPTH_COMPONENT32F,	
+		type: PicoGL.FLOAT,
 		compareMode: PicoGL.COMPARE_REF_TO_TEXTURE,
 		compareFunc: PicoGL.LEQUAL,
 		minFilter: PicoGL.LINEAR,
 		magFilter: PicoGL.LINEAR,
-
 	});
 
 	shadowMapFramebuffer = app.createFramebuffer()
@@ -1091,8 +1124,8 @@ function resize() {
 
 	var w = window.innerWidth;
 	var h = window.innerHeight;
-	w = 1920*0.8;
-	h = 1020*0.8;
+	// w = 1920*0.8;
+	// h = 1080*0.8;
 
 
 	app.resize(w, h);
@@ -1108,6 +1141,9 @@ function render() {
 
 	stats.begin();
 	picoTimer.start();
+
+
+	var gl = picoTimer.gl;
 	{
 
 		if (settings["rotate_light"]) {
@@ -1125,12 +1161,14 @@ function render() {
         }
 
 
-        var lightmap = lightMapFramebuffer.colorTextures[0];
-        renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
+		
 
-		renderLightmap();
 		if(settings.redraw_global_illumination)
 		{
+			var lightmap = lightMapFramebuffer.colorTextures[0];
+			renderProbeRadiance(relight_uvs_texture, relight_shs_texture, lightmap);
+			renderLightmap();
+			
 			if(compressed)
 			{
 				render_apply_dictionary();
@@ -1174,6 +1212,10 @@ function render() {
 		if(applyDictionaryFramebuffer && settings.view_trans_pc)
 		{
 			renderTextureToScreen(applyDictionaryFramebuffer.colorTextures[0]);
+		}
+		if(settings.view_shadow_map)
+		{
+			renderTextureToScreen(shadowMapFramebuffer.colorTextures[0]);
 		}
 	}
 	picoTimer.end();
@@ -1298,7 +1340,7 @@ function render_apply_dictionary()
 
 function render_gi()
 {
-	if(applyDictionaryFramebuffer && gilightMapFramebuffer)
+	if(applyDictionaryFramebuffer && gilightMapFramebuffer && GIDrawCall)
 	{
 		app.drawFramebuffer(gilightMapFramebuffer)
 		.viewport(0, 0, giLightMapSize, giLightMapSize)

@@ -22,7 +22,7 @@ void main()
 		vec3 probe_dir = probe_pos[i]-world_pos; 
 		float sampled_light_dist = texture(probe_depth[i], -probe_dir).r; // why the minus here?? 
 		float real_distance = length(probe_dir);
-		if (real_distance >= sampled_light_dist + 0.03)
+		if (real_distance >= sampled_light_dist + 0.04)
 		{ // world_pos is a mutualy visible point 
 			
 			vec3 v = normalize(probe_dir); // vector used in sh calcs

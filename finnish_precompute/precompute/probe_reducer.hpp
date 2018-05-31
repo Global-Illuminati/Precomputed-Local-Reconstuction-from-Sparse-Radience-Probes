@@ -112,7 +112,6 @@ void reduce_probes(std::vector<vec3> &probes, VoxelScene *scene, float rho_probe
 	std::iota(std::begin(density_sorting), std::end(density_sorting), 0);
 	if(target_probe_count == -1) target_probe_count = calculate_target_probe_count(scene, rho_probes);
 
-	printf("fuck off!");
 	printf("\nrho_probes = %f\n", rho_probes);
 	printf("target_probe_count = %d\n", target_probe_count);
 

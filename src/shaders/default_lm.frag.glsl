@@ -28,6 +28,7 @@ uniform vec3 u_dir_light_view_direction;
 
 layout(location = 0) out vec4 o_color;
 
+
 void main()
 {
 	vec3 N = normalize(v_normal);
@@ -45,7 +46,7 @@ void main()
 	mapped_normal = normalize(mapped_normal * vec3(2.0) - vec3(1.0));
 	N = tbn * mapped_normal;
 
-	vec3 diffuse = texture(u_diffuse_map, v_tex_coord).rgb;
+	vec3 diffuse = toLinear(texture(u_diffuse_map, v_tex_coord).rgb);
 	float shininess = texture(u_specular_map, v_tex_coord).r;
 
 	vec3 wi = normalize(-u_dir_light_view_direction);
@@ -56,8 +57,8 @@ void main()
 	//////////////////////////////////////////////////////////
 	// ambient
 	//vec3 color = u_ambient_color.rgb * diffuse;
-	vec3 color  = texture(u_light_map,v_lightmap_coord).xyz*diffuse;
-	//o_color = vec4(color,1)*100.0;
+	vec3 color  = texture(u_light_map,v_lightmap_coord).xyz*diffuse/3.14;
+	//o_color = vec4(color,1)*120.0;
 
 	//////////////////////////////////////////////////////////
 	// directional light
@@ -84,7 +85,6 @@ void main()
 		color += visibility * shininess * specular * u_dir_light_color;
 	}
 
-	// output tangents
-	o_color = vec4(color, 1.0);
-
+	
+	o_color = vec4(fromLinear(color),1.0);
 }

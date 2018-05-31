@@ -178,6 +178,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="precompute.cpp" />
+    <ClCompile Include="SphericalHarmonics.cc">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="stdafx.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
@@ -220,6 +223,11 @@
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="ThirdParty\Eigen\eigen.natvis" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="spherical_harmonics.compute">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </FxCompile>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

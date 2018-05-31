@@ -6,6 +6,7 @@
     <ClCompile Include="ThirdParty\thekla\thekla_atlas.cpp" />
     <ClCompile Include="ThirdParty\google_spherical_harmonics\spherical_harmonics.cc" />
     <ClCompile Include="ThirdParty\glew\include\GL\glew.c" />
+    <ClCompile Include="SphericalHarmonics.cc" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h" />
@@ -40,5 +41,8 @@
   </ItemGroup>
   <ItemGroup>
     <Natvis Include="ThirdParty\Eigen\eigen.natvis" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="spherical_harmonics.compute" />
   </ItemGroup>
 </Project>

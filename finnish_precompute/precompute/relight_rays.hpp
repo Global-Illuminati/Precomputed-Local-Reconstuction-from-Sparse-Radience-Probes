@@ -1,5 +1,5 @@
 
-#define RELIGHT_RAYS_PER_PROBE 100//100 //8000
+#define RELIGHT_RAYS_PER_PROBE 4000//100 //8000
 
 #define PI 3.1415926535898
 
@@ -116,7 +116,7 @@ void write_relight_shs(std::vector<vec3> &relight_dirs, char *file_path) {
 		float x = v.x();
 		float y = v.y();
 		float z = v.z();
-
+#if 0
 		fprintf(f, "%f %f %f %f %f %f %f %f %f %f %f %f %f %f %f %f\n",
 			0.282098949,
 			-0.488609731* y,
@@ -137,6 +137,11 @@ void write_relight_shs(std::vector<vec3> &relight_dirs, char *file_path) {
 			-0.457052559*x*(-1 + 5 * z*z),
 			1.44532704	*(x*x - y * y)*z,
 			-0.590052307*x*(x*x - 3 * y*y));
+#endif
+		float Y[64];
+		computeY(sqrt(num_sh_coeffs)-1, z, x, y, Y);
+		for (int i = 0; i < num_sh_coeffs; i++) fprintf(f, "%f ", Y[i]);
+		fprintf(f, "\n");
 	}
 
 	fclose(f);
