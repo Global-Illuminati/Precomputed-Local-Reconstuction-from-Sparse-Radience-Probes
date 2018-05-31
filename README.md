@@ -11,7 +11,7 @@ This project will not likely be updated any further. Compared to the paper most 
 
 For higher quality results the lightmaping issues must be fixed and additionally windowing should be applied to the spherical harmonics.
 
-Compared to the paper we've changed how the receivers are interpolated. Instead of each probe having a fixed support radius we use a radius per receiver. This allows all receivers to interpolate between roughly the same number of probes which reduces the average needed and thus reduce the memory footprint, and improves precompute- and real-time performance. We've not this change to cause any loss of quality but a closer investigation into the subject is needed for anything conclusive. 
+Compared to the paper we've changed how the receivers are interpolated. Instead of each probe having a fixed support radius we use a radius per receiver. This allows all receivers to interpolate between roughly the same number of probes which reduces the average needed and thus reduce the memory footprint, and improves precompute- and real-time performance. We've not seen this change to cause any loss of quality but a closer investigation into the subject is needed for anything conclusive. 
 
 A link to the Bachelor Thesis will be provided when published.
 
