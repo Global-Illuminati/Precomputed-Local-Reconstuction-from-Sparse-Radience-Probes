@@ -15,3 +15,4 @@ Compared to the paper we've changed how the receivers are interpolated. Instead 
 
 A link to the Bachelor Thesis will be provided when published.
 
+![Results](Images/image.png?raw=true "Screenshot from the application")
